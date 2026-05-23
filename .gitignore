@@ -1,7 +1,11 @@
 Library/
 Temp/
 Obj/
-Build/
-Builds/
 Logs/
+Builds/
 UserSettings/
+MemoryCaptures/
+.vs/
+*.csproj
+*.unityproj
+*.sln
