@@ -129,7 +129,7 @@ public class AnimalNode : ResourceNode
             
             if (direction.sqrMagnitude > 0.001f)
             {
-                transform.rotation = Quaternion.LookRotation(direction) * Quaternion.Euler(0, -90, 0);
+                transform.rotation = Quaternion.LookRotation(direction);
             }
         }
     }
