@@ -466,6 +466,12 @@ public class Villager : Unit
         state = next;
 
         // Set work animation bool and tool based on resource type when entering Gathering
+        if ((state == VState.Gathering || state == VState.AttackingAnimal) && animator != null)
+        {
+            animator.SetBool("IsMoving", false);
+            _wasVillagerMoving = false;
+        }
+
         if (state == VState.Gathering && targetNode != null && animator != null)
         {
             if (targetNode.ResourceType == ResourceType.Wood)
@@ -535,6 +541,7 @@ public class Villager : Unit
     {
         if (!isClient) return;
 
+        animator.SetBool("IsMoving", false);
         animator.SetBool("IsChopping", false);
         animator.SetBool("IsDigging", false);
         animator.SetBool("IsGathering", false);
@@ -554,6 +561,7 @@ public class Villager : Unit
                 animator.SetBool("IsGathering", true);
                 break;
             case 4:
+                animator.SetBool("IsThrusting", true);
                 ShowKnife(true);
                 break;
         }

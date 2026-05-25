@@ -117,7 +117,7 @@ public class AnimalNode : ResourceNode
         bool isMoving = distToTarget > 0.05f;
 
         if (animator != null)
-            animator.SetBool("IsWalking", isMoving);
+            animator.SetBool("IsMoving", isMoving);
 
         if (isMoving)
         {
@@ -129,9 +129,7 @@ public class AnimalNode : ResourceNode
             
             if (direction.sqrMagnitude > 0.001f)
             {
-                Quaternion lookRotation = Quaternion.LookRotation(direction);
-                Quaternion idleOffset = Quaternion.Euler(90, -90, 0);
-                transform.rotation = lookRotation * idleOffset;
+                transform.rotation = Quaternion.LookRotation(direction) * Quaternion.Euler(0, -90, 0);
             }
         }
     }
@@ -141,7 +139,7 @@ public class AnimalNode : ResourceNode
         stopped = true;
         wanderTarget = transform.position;
         if (animator != null)
-            animator.SetBool("IsWalking", false);
+            animator.SetBool("IsMoving", false);
     }
 
     protected override void OnKilled()

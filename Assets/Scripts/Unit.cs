@@ -28,6 +28,9 @@ public class Unit : NetworkBehaviour
     [SerializeField] private Renderer   unitRenderer;
     [SerializeField] private Material   outlineMaterial;
 
+    [Header("Effects")]
+    [SerializeField] private GameObject damageTextPrefab;
+
     [Header("Ground Snapping")]
     [SerializeField] private LayerMask groundLayer = ~0;
     [SerializeField] private float groundSnapOffset = 0.01f;
@@ -375,6 +378,9 @@ public class Unit : NetworkBehaviour
         if (isDying) return;
         syncHealth -= amount;
         currentHealth = syncHealth;
+
+        if (isServer) RpcOnTakeDamage(amount, transform.position);
+
         if (syncHealth <= 0) { Die(); return; }
 
         if (attackTarget == null)
@@ -392,6 +398,26 @@ public class Unit : NetworkBehaviour
             threatForAllies = FindAttacker();
 
         AlertNearbyAllies(threatForAllies);
+    }
+
+    [ClientRpc]
+    private void RpcOnTakeDamage(int amount, Vector3 pos)
+    {
+        if (isServer) return;
+        EffectManager.Instance?.PlayHitEffect(pos);
+        if (damageTextPrefab != null)
+        {
+            FloatingDamageText dmg = Instantiate(damageTextPrefab, pos + Vector3.up * 1.5f, Quaternion.identity)
+                .GetComponent<FloatingDamageText>();
+            if (dmg != null) dmg.SetDamage(amount);
+        }
+    }
+
+    [ClientRpc]
+    private void RpcOnDeath(Vector3 pos)
+    {
+        if (isServer) return;
+        EffectManager.Instance?.PlayDeathEffect(pos);
     }
 
     private void OnSyncHealthChanged(int oldVal, int newVal)
@@ -465,6 +491,8 @@ public class Unit : NetworkBehaviour
         if (isClient && !isServer) return;
         if (isDying) return;
         isDying = true;
+
+        if (isServer) RpcOnDeath(transform.position);
 
         Collider[] nearby = Physics.OverlapSphere(transform.position, 20f);
         foreach (Collider c in nearby)

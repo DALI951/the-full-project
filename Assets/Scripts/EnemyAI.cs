@@ -2,12 +2,8 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Mirror;
+using System.Linq;
 
-/// <summary>
-/// EnemyAI — controls the enemy faction.
-/// Attach to any persistent GameObject (e.g. GameManager).
-/// Requires a second BuildingSpawner in the scene with playerIndex = enemyPlayerId.
-/// </summary>
 public class EnemyAI : MonoBehaviour
 {
     public static EnemyAI Instance { get; private set; }
@@ -25,21 +21,43 @@ public class EnemyAI : MonoBehaviour
     private int currentPopulation = 0;
 
     [Header("AI Timers (seconds)")]
-    [SerializeField] private float trainCheckInterval  = 20f;  // try to queue a unit every N s
-    [SerializeField] private float attackInterval      = 60f;  // send attack wave every N s
-    [SerializeField] private float patrolInterval      = 15f;  // give patrol orders every N s
-    [SerializeField] private float gatherCheckInterval = 10f;  // redirect idle villagers every N s
+    [SerializeField] private float economyInterval = 8f;
+    [SerializeField] private float militaryInterval = 12f;
+    [SerializeField] private float attackInterval = 60f;
+    [SerializeField] private float defenseInterval = 15f;
+    [SerializeField] private float gatherInterval = 8f;
+    [SerializeField] private float scoutInterval = 30f;
 
-    [Header("Attack Threshold")]
+    [Header("Attack Thresholds")]
     [SerializeField] private int minAttackForce = 4;
+    [SerializeField] private int maxAttackForce = 15;
 
-    [Header("Adaptive Difficulty (auto-scales per game)")]
+    [Header("Building Blueprint")]
+    [SerializeField] private GameObject towerPrefab;
+    [SerializeField] private GameObject wallPrefab;
+    [SerializeField] private GameObject farmPrefab;
+    [SerializeField] private GameObject lumberMillPrefab;
+    [SerializeField] private GameObject marketPrefab;
+
+    [Header("Adaptive Difficulty")]
     private int gamesPlayed = 0;
+    private int difficultyLevel = 0;
 
-    private int   food, wood, gold;
-    private float trainTimer, attackTimer, patrolTimer, gatherTimer;
+    [Header("AI State")]
+    public AIStrategy currentStrategy = AIStrategy.Economy;
+    private float economyTimer, militaryTimer, attackTimer, defenseTimer, gatherTimer, scoutTimer;
+    private Vector3 lastScoutPosition;
+    private int waveCount = 0;
+    private bool hasScouted = false;
+    private bool isUnderAttack = false;
+    private float underAttackTimer = 0f;
+    private HashSet<Vector3> builtPositions = new HashSet<Vector3>();
 
-    // ── Lifecycle ────────────────────────────────────────────────────────
+    private int food, wood, gold;
+    private int ecoPriority = 0;
+    private float gameTime = 0f;
+
+    public enum AIStrategy { Economy, MilitaryBuildup, Attacking, Defending, Desperate }
 
     private void Awake()
     {
@@ -51,34 +69,74 @@ public class EnemyAI : MonoBehaviour
     {
         if (!NetworkServer.active) { enabled = false; return; }
         if (NetworkServer.connections.Count >= 2) { enabled = false; return; }
+
         gamesPlayed = PlayerPrefs.GetInt("EnemyGamesPlayed", 0);
-        int diff = Mathf.Min(gamesPlayed, 10);
-        attackInterval     = Mathf.Max(30f, attackInterval     - diff * 3f);
-        trainCheckInterval = Mathf.Max( 8f, trainCheckInterval - diff * 1f);
-        startFood += diff * 40;
-        startWood += diff * 25;
-        startGold += diff * 15;
+        difficultyLevel = Mathf.Min(gamesPlayed, 10);
+        attackInterval = Mathf.Max(30f, attackInterval - difficultyLevel * 3f);
+        economyInterval = Mathf.Max(5f, economyInterval - difficultyLevel * 0.3f);
+        militaryInterval = Mathf.Max(8f, militaryInterval - difficultyLevel * 0.4f);
+
+        startFood += difficultyLevel * 40;
+        startWood += difficultyLevel * 25;
+        startGold += difficultyLevel * 15;
+        maxPopulation += difficultyLevel * 5;
 
         food = startFood; wood = startWood; gold = startGold;
-        Invoke(nameof(InitialGatherOrders), 3f);
+        Invoke(nameof(InitialGatherOrders), 2f);
+        Invoke(nameof(InitialScout), 30f);
     }
 
     private void Update()
     {
-        trainTimer  += Time.deltaTime;
-        attackTimer += Time.deltaTime;
-        patrolTimer += Time.deltaTime;
-        gatherTimer += Time.deltaTime;
+        gameTime += Time.deltaTime;
 
-        if (trainTimer  >= trainCheckInterval)  { trainTimer  = 0f; TryTrainUnits(); }
-        if (attackTimer >= attackInterval)       { attackTimer = 0f; SendAttackWave(); }
-        if (patrolTimer >= patrolInterval)       { patrolTimer = 0f; IssuePatrolOrders(); }
-        if (gatherTimer >= gatherCheckInterval)  { gatherTimer = 0f; CheckGatherers(); }
+        economyTimer += Time.deltaTime;
+        militaryTimer += Time.deltaTime;
+        attackTimer += Time.deltaTime;
+        defenseTimer += Time.deltaTime;
+        gatherTimer += Time.deltaTime;
+        scoutTimer += Time.deltaTime;
+
+        EvaluateStrategy();
+
+        if (economyTimer >= economyInterval) { economyTimer = 0f; RunEconomy(); }
+        if (militaryTimer >= militaryInterval) { militaryTimer = 0f; RunMilitaryProduction(); }
+        if (attackTimer >= attackInterval) { attackTimer = 0f; SendAttackWave(); }
+        if (defenseTimer >= defenseInterval) { defenseTimer = 0f; RunDefense(); }
+        if (gatherTimer >= gatherInterval) { gatherTimer = 0f; CheckGatherers(); }
+        if (scoutTimer >= scoutInterval) { scoutTimer = 0f; RunScouting(); }
+
+        if (isUnderAttack)
+        {
+            underAttackTimer -= Time.deltaTime;
+            if (underAttackTimer <= 0f) isUnderAttack = false;
+        }
     }
 
-    // ── Resource API (called by Building and Villager) ────────────────────
+    private void EvaluateStrategy()
+    {
+        int militaryCount = CountEnemyMilitary();
+        int villagerCount = CountEnemyVillagers();
+        float resourceRatio = (food + wood + gold) / Mathf.Max(1, startFood + startWood + startGold);
 
-    /// <summary>Add gathered/refunded resources to the enemy pool.</summary>
+        if (currentPopulation >= maxPopulation * 0.9f)
+            currentStrategy = AIStrategy.Desperate;
+        else if (isUnderAttack && militaryCount < 3)
+            currentStrategy = AIStrategy.Defending;
+        else if (attackTimer >= attackInterval * 0.8f && militaryCount >= minAttackForce)
+            currentStrategy = AIStrategy.Attacking;
+        else if (villagerCount < 6 || resourceRatio < 0.3f)
+            currentStrategy = AIStrategy.Economy;
+        else
+            currentStrategy = AIStrategy.MilitaryBuildup;
+    }
+
+    public void ReportUnderAttack()
+    {
+        isUnderAttack = true;
+        underAttackTimer = 20f;
+    }
+
     public void AddEnemyResources(int f, int w, int g)
     {
         food = Mathf.Max(0, food + f);
@@ -86,7 +144,6 @@ public class EnemyAI : MonoBehaviour
         gold = Mathf.Max(0, gold + g);
     }
 
-    /// <summary>Returns true and deducts if the enemy can afford the cost.</summary>
     public bool TrySpend(int costFood, int costWood, int costGold)
     {
         if (food < costFood || wood < costWood || gold < costGold) return false;
@@ -95,43 +152,327 @@ public class EnemyAI : MonoBehaviour
     }
 
     public bool CanAddPopulation(int amount = 1) => currentPopulation + amount <= maxPopulation;
-    public void AddPopulation(int amount = 1)    => currentPopulation = Mathf.Clamp(currentPopulation + amount, 0, maxPopulation);
+    public void AddPopulation(int amount = 1) => currentPopulation = Mathf.Clamp(currentPopulation + amount, 0, maxPopulation);
     public void RemovePopulation(int amount = 1) => currentPopulation = Mathf.Max(0, currentPopulation - amount);
-    public int  CurrentPopulation => currentPopulation;
-    public int  MaxPopulation     => maxPopulation;
+    public int CurrentPopulation => currentPopulation;
+    public int MaxPopulation => maxPopulation;
 
-    // ── Training ─────────────────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════
+    // ECONOMY
+    // ════════════════════════════════════════════════════════════════════
 
-    private void TryTrainUnits()
+    private void RunEconomy()
     {
+        int vCount = CountEnemyVillagers();
+        float resourceBalance = (float)(wood + gold) / Mathf.Max(1, food);
+
+        if (vCount < 6 || resourceBalance < 1.5f)
+        {
+            TrainFromBuilding<HomeSite>(0);
+        }
+
+        if (wood > 100 && gold > 50 && vCount >= 4)
+        {
+            TryBuildEconomyBuilding();
+        }
+
+        if (food > 150 && wood > 100 && CountEnemyBuildings<Barracks>() == 0)
+        {
+            TryBuildBarracks();
+        }
+
+        AssignIdleVillagersToResourceBuildings();
+    }
+
+    private void TryBuildEconomyBuilding()
+    {
+        if (ResourceNode.FindNearest(transform.position, ResourceType.Food, null, 30f) != null
+            && CountEnemyBuildingsOfPrefab(farmPrefab) < 2)
+        {
+            TryPlaceBuilding(farmPrefab);
+        }
+        else if (ResourceNode.FindNearest(transform.position, ResourceType.Wood, null, 30f) != null
+                 && CountEnemyBuildingsOfPrefab(lumberMillPrefab) < 1)
+        {
+            TryPlaceBuilding(lumberMillPrefab);
+        }
+        else if (CountEnemyBuildingsOfPrefab(marketPrefab) < 1)
+        {
+            TryPlaceBuilding(marketPrefab);
+        }
+    }
+
+    private void TryBuildBarracks()
+    {
+        if (barracksCost <= wood + 50)
+            TryPlaceBuilding(barracksPrefab);
+    }
+
+    [Header("Building Prefabs")]
+    [SerializeField] private GameObject barracksPrefab;
+    [SerializeField] private int barracksCost = 150;
+    [SerializeField] private int towerCost = 100;
+    private const int BUILDING_SPACING = 8;
+
+    private void TryPlaceBuilding(GameObject prefab)
+    {
+        if (prefab == null) return;
+        Vector3 basePos = GetEnemyBasePosition();
+        if (basePos == Vector3.zero) return;
+
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            Vector2 rand = Random.insideUnitCircle * (10f + attempt * 3f);
+            Vector3 pos = basePos + new Vector3(rand.x, 0f, rand.y);
+            pos = ClampToMap(pos);
+
+            if (UnityEngine.AI.NavMesh.SamplePosition(pos, out UnityEngine.AI.NavMeshHit hit, 5f, UnityEngine.AI.NavMesh.AllAreas))
+                pos = hit.position;
+
+            if (IsPositionClearForBuilding(pos) && !builtPositions.Contains(pos))
+            {
+                int cost = GetBuildingCost(prefab);
+                if (!TrySpend(cost, cost, cost / 2)) continue;
+
+                AssignBuilderToBuild(pos, prefab);
+                builtPositions.Add(pos);
+                break;
+            }
+        }
+    }
+
+    private bool IsPositionClearForBuilding(Vector3 pos)
+    {
+        Collider[] hits = Physics.OverlapSphere(pos, 3f);
+        foreach (Collider c in hits)
+        {
+            if (c.GetComponentInParent<Building>() != null) return false;
+            if (c.GetComponentInParent<ConstructionSite>() != null) return false;
+            if (c.GetComponentInParent<ResourceNode>() != null) return false;
+        }
+        return true;
+    }
+
+    private int GetBuildingCost(GameObject prefab)
+    {
+        if (prefab == farmPrefab || prefab == lumberMillPrefab || prefab == marketPrefab) return 75;
+        if (prefab == towerPrefab) return towerCost;
+        if (prefab == wallPrefab) return 50;
+        return 100;
+    }
+
+    private void AssignBuilderToBuild(Vector3 pos, GameObject prefab)
+    {
+        Villager builder = FindIdleVillager();
+        if (builder == null) return;
+        Vector3 clampedPos = ClampToMap(pos);
+        builder.MoveTo(clampedPos);
+        builder.SetFirstWaypoint(clampedPos);
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    // MILITARY PRODUCTION
+    // ════════════════════════════════════════════════════════════════════
+
+    private void RunMilitaryProduction()
+    {
+        int militaryCount = CountEnemyMilitary();
+        int villagerCount = CountEnemyVillagers();
+        float timePhase = gameTime / 60f;
+
+        if (villagerCount < 4 && militaryCount > 3)
+        {
+            TrainFromBuilding<HomeSite>(0);
+            return;
+        }
+
         foreach (Building b in Building.AllBuildings)
         {
             if (b == null || b.OwnerPlayerId != enemyPlayerId) continue;
             if (b.QueueBatchCount >= 3) continue;
 
             if (b is HomeSite)
-                b.SpawnUnit(0);                          // Villager
+            {
+                if (villagerCount < 12 || (ecoPriority > 0 && currentPopulation < maxPopulation - 2))
+                {
+                    if (TrySpend(50, 0, 0))
+                    {
+                        b.SpawnUnit(0);
+                        ecoPriority = Mathf.Max(0, ecoPriority - 1);
+                    }
+                }
+            }
             else if (b is Barracks)
             {
-                int idx = (b.SpawnablePrefabs.Count > 1 &&
-                        CountEnemyMilitary() % 3 == 0) ? 1 : 0;   // every 3rd unit = cavalry
-                b.SpawnUnit(idx);
+                int idx = 0;
+                float cavRatio = militaryCount > 0 ? (float)CountEnemyCavalry() / militaryCount : 0f;
+
+                if (timePhase > 5f && cavRatio < 0.3f && Random.value < 0.4f && b.SpawnablePrefabs.Count > 1)
+                    idx = 1;
+
+                Unit unitPrefab = b.SpawnablePrefabs[idx]?.GetComponent<Unit>();
+                if (unitPrefab != null)
+                {
+                    int costFood = unitPrefab is Cavalry ? 80 : 60;
+                    int costGold = unitPrefab is Cavalry ? 30 : 20;
+                    if (TrySpend(costFood, 0, costGold) && CanAddPopulation(1))
+                        b.SpawnUnit(idx);
+                }
             }
-            else
-                b.SpawnUnit(0);
         }
     }
 
-    private int CountEnemyMilitary()
+    // ════════════════════════════════════════════════════════════════════
+    // ATTACK WAVES
+    // ════════════════════════════════════════════════════════════════════
+
+    private void SendAttackWave()
     {
-        int count = 0;
-        if (UnitSelectionManager.Instance == null) return 0;
-        foreach (Unit u in UnitSelectionManager.Instance.allUnitsList)
-            if (u != null && !(u is Villager) && u.OwnerPlayerId == enemyPlayerId) count++;
-        return count;
+        List<Unit> available = GetAvailableMilitaryUnits();
+        if (available.Count < minAttackForce) return;
+
+        int attackForce = Mathf.Min(available.Count, maxAttackForce + waveCount * 2);
+        List<Unit> attackers = available.Take(attackForce).ToList();
+
+        Building primaryTarget = FindBestTarget(AveragePos(attackers));
+        if (primaryTarget == null) return;
+
+        waveCount++;
+        StartCoroutine(ExecuteAttackWave(attackers, primaryTarget));
     }
 
-    // ── Gathering ─────────────────────────────────────────────────────────
+    private IEnumerator ExecuteAttackWave(List<Unit> attackers, Building primaryTarget)
+    {
+        List<Unit> infantry = attackers.Where(u => u is Infantry).ToList();
+        List<Unit> cavalry = attackers.Where(u => u is Cavalry).ToList();
+
+        if (cavalry.Count >= 2)
+        {
+            Vector3 flankPos = primaryTarget.transform.position + (primaryTarget.transform.right * Random.Range(8f, 15f));
+            flankPos = ClampToMap(flankPos);
+            foreach (Unit c in cavalry)
+            {
+                c.ClearWaypoints();
+                c.MoveTo(flankPos);
+                c.SetBuildingTarget(primaryTarget);
+            }
+            yield return new WaitForSeconds(Random.Range(1f, 3f));
+        }
+
+        Vector3 approachPos = primaryTarget.transform.position;
+        foreach (Unit u in infantry)
+        {
+            u.ClearWaypoints();
+            u.SetBuildingTarget(primaryTarget);
+        }
+
+        yield return new WaitForSeconds(2f);
+
+        foreach (Unit u in attackers)
+        {
+            if (u != null && !u.HasActiveTarget)
+                u.SetBuildingTarget(primaryTarget);
+        }
+    }
+
+    private Building FindBestTarget(Vector3 from)
+    {
+        Building best = null;
+        float bestScore = float.MaxValue;
+        int localId = PlayerColorManager.LocalPlayerIndex;
+
+        foreach (Building b in Building.AllBuildings)
+        {
+            if (b == null || b.OwnerPlayerId != localId) continue;
+
+            float dist = Vector3.Distance(from, b.transform.position);
+            float score = dist;
+
+            if (b is HomeSite) score *= 0.5f;
+            else if (b is Barracks) score *= 0.7f;
+
+            if (b.CurrentBuildingHealth < b.MaxBuildingHealth * 0.3f)
+                score *= 0.4f;
+
+            if (score < bestScore) { bestScore = score; best = b; }
+        }
+        return best;
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    // DEFENSE
+    // ════════════════════════════════════════════════════════════════════
+
+    private void RunDefense()
+    {
+        if (towerPrefab == null) return;
+        Vector3 basePos = GetEnemyBasePosition();
+        if (basePos == Vector3.zero) return;
+
+        int towerCount = CountEnemyBuildingsOfPrefab(towerPrefab);
+        int maxTowers = 2 + difficultyLevel;
+
+        if (towerCount < maxTowers && wood > towerCost * 2 && gold > towerCost)
+        {
+            TryPlaceBuilding(towerPrefab);
+        }
+
+        if (isUnderAttack)
+        {
+            RecallDefenders();
+        }
+    }
+
+    private void RecallDefenders()
+    {
+        Vector3 basePos = GetEnemyBasePosition();
+        List<Unit> military = GetAvailableMilitaryUnits();
+
+        foreach (Unit u in military)
+        {
+            float distToBase = Vector3.Distance(u.transform.position, basePos);
+            if (distToBase > 15f)
+            {
+                u.ClearWaypoints();
+                u.MoveTo(basePos + Random.insideUnitSphere * 5f);
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    // SCOUTING
+    // ════════════════════════════════════════════════════════════════════
+
+    private void InitialScout() => RunScouting();
+
+    private void RunScouting()
+    {
+        int localId = PlayerColorManager.LocalPlayerIndex;
+        Building playerBase = null;
+        foreach (Building b in Building.AllBuildings)
+        {
+            if (b != null && b.OwnerPlayerId == localId && b is HomeSite)
+            { playerBase = b; break; }
+        }
+
+        if (playerBase == null) return;
+
+        if (!hasScouted)
+        {
+            List<Unit> scouts = GetAvailableMilitaryUnits();
+            if (scouts.Count > 0)
+            {
+                scouts[0].MoveTo(playerBase.transform.position);
+                hasScouted = true;
+            }
+        }
+
+        lastScoutPosition = playerBase.transform.position;
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    // GATHERING
+    // ════════════════════════════════════════════════════════════════════
 
     private void InitialGatherOrders() => CheckGatherers();
 
@@ -142,58 +483,61 @@ public class EnemyAI : MonoBehaviour
         {
             if (u == null || !(u is Villager v)) continue;
             if (u.OwnerPlayerId != enemyPlayerId) continue;
-            if (v.IsGathering) continue;   // already working
-            ResourceNode node = ResourceNode.FindNearestAny(u.transform.position, 250f);
+            if (v.IsGathering) continue;
+
+            ResourceType preferredType = GetPreferredResourceType();
+            ResourceNode node = ResourceNode.FindNearest(u.transform.position, preferredType, null, 250f);
+            if (node == null)
+                node = ResourceNode.FindNearestAny(u.transform.position, 250f);
             if (node != null) v.GatherFrom(node);
         }
     }
 
-    // ── Attack Wave ───────────────────────────────────────────────────────
-
-    private void SendAttackWave()
+    private ResourceType GetPreferredResourceType()
     {
-        if (UnitSelectionManager.Instance == null) return;
-
-        List<Unit> attackers = new List<Unit>();
-        foreach (Unit u in UnitSelectionManager.Instance.allUnitsList)
-        {
-            if (u == null || u is Villager) continue;
-            if (u.OwnerPlayerId != enemyPlayerId) continue;
-            attackers.Add(u);
-        }
-        if (attackers.Count == 0) return;
-        if (attackers.Count < minAttackForce) return;   // wait for enough army
-
-        Building target = FindNearestPlayerBuilding(AveragePos(attackers));
-        if (target == null) return;
-
-        foreach (Unit u in attackers)
-            u.SetBuildingTarget(target);
+        int militaryCount = CountEnemyMilitary();
+        if (militaryCount > 5) return ResourceType.Gold;
+        if (CountEnemyVillagers() < 4) return ResourceType.Food;
+        if (wood < 80) return ResourceType.Wood;
+        return ResourceType.Gold;
     }
 
-    // ── Patrol ────────────────────────────────────────────────────────────
-
-    private void IssuePatrolOrders()
+    private void AssignIdleVillagersToResourceBuildings()
     {
-        if (UnitSelectionManager.Instance == null) return;
-        Vector3 basePos = GetEnemyBasePosition();
-
-        foreach (Unit u in UnitSelectionManager.Instance.allUnitsList)
+        foreach (ResourceBuilding rb in FindObjectsOfType<ResourceBuilding>())
         {
-            if (u == null || u is Villager) continue;
-            if (u.OwnerPlayerId != enemyPlayerId) continue;
-            if (u.HasActiveTarget) continue;   // already has orders
+            if (rb == null) continue;
+            Building b = rb.GetComponent<Building>();
+            if (b != null && b.OwnerPlayerId != enemyPlayerId) continue;
+            if (rb.WorkerCount >= rb.MaxWorkers) continue;
 
-            Vector2 rand   = Random.insideUnitCircle * 12f;
+            Villager idle = FindIdleVillager();
+            if (idle != null)
+                rb.TryAddVillager(idle);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    // PATROL
+    // ════════════════════════════════════════════════════════════════════
+
+    private void IssuePatrolOrders(List<Unit> units)
+    {
+        Vector3 basePos = GetEnemyBasePosition();
+        foreach (Unit u in units)
+        {
+            if (u == null || u.HasActiveTarget) continue;
+            Vector2 rand = Random.insideUnitCircle * 12f;
             Vector3 patrol = basePos + new Vector3(rand.x, 0f, rand.y);
-            if (MapBoundary.Instance != null) patrol = MapBoundary.Instance.Clamp(patrol);
+            patrol = ClampToMap(patrol);
             u.SetFirstWaypoint(patrol);
         }
     }
 
-    // ── Win / Lose ────────────────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════
+    // WIN / LOSE
+    // ════════════════════════════════════════════════════════════════════
 
-    /// <summary>Called by Building.OnBuildingDestroyed() before the GO is removed.</summary>
     public void OnBuildingDestroyed(Building building)
     {
         StartCoroutine(CheckWinLose());
@@ -203,18 +547,17 @@ public class EnemyAI : MonoBehaviour
     {
         yield return null;
 
-        bool enemyCanSurvive  = false;
+        bool enemyCanSurvive = false;
         bool playerCanSurvive = false;
-        int  localId          = PlayerColorManager.LocalPlayerIndex;
+        int localId = PlayerColorManager.LocalPlayerIndex;
 
         foreach (Building b in Building.AllBuildings)
         {
             if (b == null) continue;
-            if (b.OwnerPlayerId == enemyPlayerId) enemyCanSurvive  = true;
-            if (b.OwnerPlayerId == localId)        playerCanSurvive = true;
+            if (b.OwnerPlayerId == enemyPlayerId) enemyCanSurvive = true;
+            if (b.OwnerPlayerId == localId) playerCanSurvive = true;
         }
 
-        // Villagers / Builders can still rebuild — don't trigger yet
         if (!enemyCanSurvive || !playerCanSurvive)
         {
             if (UnitSelectionManager.Instance != null)
@@ -224,8 +567,8 @@ public class EnemyAI : MonoBehaviour
                     if (u == null) continue;
                     if (u is Villager || u.UnitType == "Builder")
                     {
-                        if (u.OwnerPlayerId == enemyPlayerId) enemyCanSurvive  = true;
-                        if (u.OwnerPlayerId == localId)        playerCanSurvive = true;
+                        if (u.OwnerPlayerId == enemyPlayerId) enemyCanSurvive = true;
+                        if (u.OwnerPlayerId == localId) playerCanSurvive = true;
                     }
                 }
             }
@@ -245,13 +588,109 @@ public class EnemyAI : MonoBehaviour
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════
+    // HELPERS
+    // ════════════════════════════════════════════════════════════════════
 
-    private Building FindNearestPlayerBuilding(Vector3 from)
+    private int CountEnemyMilitary()
+    {
+        int count = 0;
+        if (UnitSelectionManager.Instance == null) return 0;
+        foreach (Unit u in UnitSelectionManager.Instance.allUnitsList)
+            if (u != null && !(u is Villager) && u.OwnerPlayerId == enemyPlayerId) count++;
+        return count;
+    }
+
+    private int CountEnemyVillagers()
+    {
+        int count = 0;
+        if (UnitSelectionManager.Instance == null) return 0;
+        foreach (Unit u in UnitSelectionManager.Instance.allUnitsList)
+            if (u != null && u is Villager && u.OwnerPlayerId == enemyPlayerId) count++;
+        return count;
+    }
+
+    private int CountEnemyCavalry()
+    {
+        int count = 0;
+        if (UnitSelectionManager.Instance == null) return 0;
+        foreach (Unit u in UnitSelectionManager.Instance.allUnitsList)
+            if (u != null && u is Cavalry && u.OwnerPlayerId == enemyPlayerId) count++;
+        return count;
+    }
+
+    private int CountEnemyBuildings<T>() where T : Building
+    {
+        int count = 0;
+        foreach (Building b in Building.AllBuildings)
+            if (b != null && b is T && b.OwnerPlayerId == enemyPlayerId) count++;
+        return count;
+    }
+
+    private int CountEnemyBuildingsOfPrefab(GameObject prefab)
+    {
+        if (prefab == null) return 0;
+        int count = 0;
+        foreach (Building b in Building.AllBuildings)
+        {
+            if (b == null || b.OwnerPlayerId != enemyPlayerId) continue;
+            if (b.gameObject.name.StartsWith(prefab.name.Replace("(Clone)", "").Trim()))
+                count++;
+        }
+        return count;
+    }
+
+    private void TrainFromBuilding<T>(int unitIndex) where T : Building
+    {
+        foreach (Building b in Building.AllBuildings)
+        {
+            if (b == null || b.OwnerPlayerId != enemyPlayerId) continue;
+            if (b is T && b.QueueBatchCount < 3)
+            {
+                b.SpawnUnit(unitIndex);
+                return;
+            }
+        }
+    }
+
+    private List<Unit> GetAvailableMilitaryUnits()
+    {
+        List<Unit> result = new List<Unit>();
+        if (UnitSelectionManager.Instance == null) return result;
+        foreach (Unit u in UnitSelectionManager.Instance.allUnitsList)
+        {
+            if (u == null || u is Villager) continue;
+            if (u.OwnerPlayerId != enemyPlayerId) continue;
+            result.Add(u);
+        }
+        return result;
+    }
+
+    private Villager FindIdleVillager()
+    {
+        if (UnitSelectionManager.Instance == null) return null;
+        Villager best = null;
+        float bestDist = float.MaxValue;
+        Vector3 basePos = GetEnemyBasePosition();
+
+        foreach (Unit u in UnitSelectionManager.Instance.allUnitsList)
+        {
+            if (!(u is Villager v)) continue;
+            if (u.OwnerPlayerId != enemyPlayerId) continue;
+            if (v.IsIdle)
+            {
+                float d = Vector3.Distance(u.transform.position, basePos);
+                if (d < bestDist) { bestDist = d; best = v; }
+            }
+        }
+        return best;
+    }
+
+    private Building FindNearestEnemyBuilding(Vector3 from)
     {
         Building nearest = null;
-        float    best    = float.MaxValue;
-        int      localId = PlayerColorManager.LocalPlayerIndex;
+        float best = float.MaxValue;
+        int localId = PlayerColorManager.LocalPlayerIndex;
 
         foreach (Building b in Building.AllBuildings)
         {
@@ -274,5 +713,12 @@ public class EnemyAI : MonoBehaviour
         foreach (Building b in Building.AllBuildings)
             if (b != null && b.OwnerPlayerId == enemyPlayerId) return b.transform.position;
         return Vector3.zero;
+    }
+
+    private Vector3 ClampToMap(Vector3 pos)
+    {
+        if (MapBoundary.Instance != null)
+            return MapBoundary.Instance.Clamp(pos);
+        return pos;
     }
 }
