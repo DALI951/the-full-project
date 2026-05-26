@@ -56,6 +56,6 @@
         "temp/": true,
         "Temp/": true
     },
-    "dotnet.defaultSolution": "mini age.sln",
+    "dotnet.defaultSolution": "mini age.slnx",
     "git.ignoreLimitWarning": true
 }
