@@ -47,6 +47,7 @@ public class Villager : Unit
     private ResourceBuilding assignedBuilding = null;
     private Vector3   _lastVillagerPos;
     private bool      _wasVillagerMoving;
+    private int       _villagerMoveStoppedFrames;
 
     protected override void Awake()
     {
@@ -96,12 +97,25 @@ public class Villager : Unit
             _lastVillagerPos = pos;
 
             bool isBusy = animState > 0;
-            bool showMoving = moving && !isBusy;
+            bool canMove = moving && !isBusy;
 
-            if (showMoving != _wasVillagerMoving)
+            if (canMove)
             {
-                _wasVillagerMoving = showMoving;
-                animator.SetBool("IsMoving", showMoving);
+                _villagerMoveStoppedFrames = 0;
+                if (!_wasVillagerMoving)
+                {
+                    _wasVillagerMoving = true;
+                    animator.SetBool("IsMoving", true);
+                }
+            }
+            else
+            {
+                _villagerMoveStoppedFrames++;
+                if (_villagerMoveStoppedFrames >= 3 && _wasVillagerMoving)
+                {
+                    _wasVillagerMoving = false;
+                    animator.SetBool("IsMoving", false);
+                }
             }
         }
 

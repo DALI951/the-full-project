@@ -96,6 +96,11 @@ public class Unit : NetworkBehaviour
             unitRenderer = GetComponentInChildren<Renderer>();
         if (unitRenderer != null)
             originalMats = unitRenderer.sharedMaterials;
+        if (selectionCircle == null)
+        {
+            Transform t = transform.Find("SelectionCircle");
+            if (t != null) selectionCircle = t.gameObject;
+        }
         if (selectionCircle != null)
             selectionCircle.SetActive(false);
 

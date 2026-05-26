@@ -15,6 +15,7 @@ public class Cavalry : Unit
 
     private Vector3 _lastPosition;
     private bool _wasMoving;
+    private int _moveStoppedFrames;
 
     protected override void Awake()
     {
@@ -50,10 +51,23 @@ public class Cavalry : Unit
         bool moving = Vector3.SqrMagnitude(pos - _lastPosition) > 0.001f;
         _lastPosition = pos;
 
-        if (moving != _wasMoving)
+        if (moving)
         {
-            _wasMoving = moving;
-            animator.SetBool("IsMoving", moving);
+            _moveStoppedFrames = 0;
+            if (!_wasMoving)
+            {
+                _wasMoving = true;
+                animator.SetBool("IsMoving", true);
+            }
+        }
+        else
+        {
+            _moveStoppedFrames++;
+            if (_moveStoppedFrames >= 3 && _wasMoving)
+            {
+                _wasMoving = false;
+                animator.SetBool("IsMoving", false);
+            }
         }
     }
 
