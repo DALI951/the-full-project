@@ -1,12 +1,8 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 using TMPro;
 
-/// <summary>
-/// Shows building info in the center panel.
-/// Displays name, health bar, and spawn point button.
-/// Attach to GameManager.
-/// </summary>
 public class BuildingInfoUI : MonoBehaviour
 {
     public static BuildingInfoUI Instance { get; private set; }
@@ -26,7 +22,6 @@ public class BuildingInfoUI : MonoBehaviour
     [SerializeField] private Button   setSpawnPointButton;
     [SerializeField] private TMP_Text spawnPointStatusText;
 
-    // Construction progress (for sites)
     [Header("Construction")]
     [SerializeField] private GameObject constructionGroup;
     [SerializeField] private TMP_Text   progressText;
@@ -38,6 +33,9 @@ public class BuildingInfoUI : MonoBehaviour
     private Building         trackedBuilding;
     private ConstructionSite trackedSite;
     private bool             settingSpawnPoint = false;
+    private bool             wasSpawnPointSet = false;
+    private bool             hoveringSpawnButton = false;
+    private float            statusClearTimer = 0f;
 
     private void Awake()
     {
@@ -55,7 +53,6 @@ public class BuildingInfoUI : MonoBehaviour
         if (trackedSite     != null) RefreshSite();
         if (trackedBuilding != null) RefreshBuildingHealth();
 
-        // Click ground to set spawn point
         if (settingSpawnPoint && Input.GetMouseButtonDown(0))
         {
             if (!UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
@@ -66,10 +63,49 @@ public class BuildingInfoUI : MonoBehaviour
                     trackedBuilding?.SetSpawnPoint(hit.point);
                     MoveFlag.Instance?.ShowSpawnFlag(hit.point);
                     settingSpawnPoint = false;
+                    wasSpawnPointSet = true;
+                    statusClearTimer = 1.5f;
                     if (spawnPointStatusText != null)
-                        spawnPointStatusText.text = "Spawn point set ✓";
+                        spawnPointStatusText.text = "Spawn point set \u2713";
                 }
             }
+        }
+
+        if (panel == null || !panel.activeSelf || setSpawnPointButton == null || spawnPointStatusText == null)
+            return;
+
+        if (statusClearTimer > 0f)
+        {
+            statusClearTimer -= Time.deltaTime;
+            if (statusClearTimer <= 0f && !hoveringSpawnButton)
+            {
+                spawnPointStatusText.text = "";
+                wasSpawnPointSet = false;
+            }
+            return;
+        }
+
+        bool over = UnityEngine.EventSystems.EventSystem.current != null
+            && RectTransformUtility.RectangleContainsScreenPoint(
+                setSpawnPointButton.GetComponent<RectTransform>(),
+                Input.mousePosition,
+                null);
+
+        if (over && !hoveringSpawnButton)
+        {
+            hoveringSpawnButton = true;
+            if (settingSpawnPoint)
+                spawnPointStatusText.text = "Click on the map to set spawn point...";
+            else if (wasSpawnPointSet)
+                spawnPointStatusText.text = "Spawn point set \u2713";
+            else
+                spawnPointStatusText.text = "Click to set spawn point";
+        }
+        else if (!over && hoveringSpawnButton)
+        {
+            hoveringSpawnButton = false;
+            if (!wasSpawnPointSet || statusClearTimer <= 0f)
+                spawnPointStatusText.text = "";
         }
     }
 
@@ -92,13 +128,15 @@ public class BuildingInfoUI : MonoBehaviour
         if (functionText)
             functionText.text = building.BuildingDescription;
         if (constructionGroup) constructionGroup.SetActive(false);
+        hoveringSpawnButton = false;
+        wasSpawnPointSet = false;
+        statusClearTimer = 0f;
         if (setSpawnPointButton) setSpawnPointButton.gameObject.SetActive(!isEnemy);
         if (spawnPointStatusText)
         {
             spawnPointStatusText.gameObject.SetActive(!isEnemy);
-            if (!isEnemy) spawnPointStatusText.text = "Click to set spawn point";
+            if (!isEnemy) spawnPointStatusText.text = "";
         }
-        if (spawnPointStatusText) spawnPointStatusText.gameObject.SetActive(!isEnemy);
         if (constructionGroup)    constructionGroup.SetActive(false);
         if (deleteConstructionButton) deleteConstructionButton.gameObject.SetActive(false);
 
@@ -133,6 +171,7 @@ public class BuildingInfoUI : MonoBehaviour
         trackedBuilding  = null;
         trackedSite      = null;
         settingSpawnPoint = false;
+        hoveringSpawnButton = false;
         panel?.SetActive(false);
         MoveFlag.Instance?.ClearRallyFlag();
     }
@@ -153,7 +192,7 @@ public class BuildingInfoUI : MonoBehaviour
             healthBarFill.fillAmount = Mathf.Clamp01(ratio);
     }
 
-    private void OnSetSpawnPointClicked()
+    public void OnSetSpawnPointClicked()
     {
         settingSpawnPoint = true;
         if (spawnPointStatusText)
