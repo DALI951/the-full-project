@@ -206,7 +206,7 @@ public class GameUI : MonoBehaviour
         if (f > 0) parts.Add($"Food:{f}");
         if (w > 0) parts.Add($"Wood:{w}");
         if (g > 0) parts.Add($"Gold:{g}");
-        return parts.Count > 0 ? string.Join("  ", parts) : "Free";
+        return parts.Count > 0 ? string.Join("\n", parts) : "Free";
     }
 
     private static string BuildSpawnTooltip(Building b, int idx, string unitName, Unit unit)
@@ -217,7 +217,7 @@ public class GameUI : MonoBehaviour
         if (unit != null && !string.IsNullOrEmpty(unit.UnitDescription))
             lines += $"\n{unit.UnitDescription}";
         if (unit != null)
-            lines += $"\nHP:{unit.MaxHealth}  Spd:{unit.BaseSpeed:F1}  Atk:{unit.AttackDamage}  Range:{unit.AttackRange:F1}";
+            lines += $"\nHP:{unit.MaxHealth}\nSpd:{unit.BaseSpeed:F1}\nAtk:{unit.AttackDamage}\nRange:{unit.AttackRange:F1}";
         lines += $"\n{FormatCost(f, w, g)}\n{t:F0}s";
         return lines;
     }

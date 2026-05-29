@@ -47,6 +47,7 @@ public class Villager : Unit
     private ResourceBuilding assignedBuilding = null;
     private Vector3   _lastVillagerPos;
     private bool      _wasVillagerMoving;
+    private int       _villagerMoveStoppedFrames;
 
     protected override void Awake()
     {
@@ -96,12 +97,25 @@ public class Villager : Unit
             _lastVillagerPos = pos;
 
             bool isBusy = animState > 0;
-            bool showMoving = moving && !isBusy;
+            bool canMove = moving && !isBusy;
 
-            if (showMoving != _wasVillagerMoving)
+            if (canMove)
             {
-                _wasVillagerMoving = showMoving;
-                animator.SetBool("IsMoving", showMoving);
+                _villagerMoveStoppedFrames = 0;
+                if (!_wasVillagerMoving)
+                {
+                    _wasVillagerMoving = true;
+                    animator.SetBool("IsMoving", true);
+                }
+            }
+            else
+            {
+                _villagerMoveStoppedFrames++;
+                if (_villagerMoveStoppedFrames >= 3 && _wasVillagerMoving)
+                {
+                    _wasVillagerMoving = false;
+                    animator.SetBool("IsMoving", false);
+                }
             }
         }
 
@@ -466,6 +480,12 @@ public class Villager : Unit
         state = next;
 
         // Set work animation bool and tool based on resource type when entering Gathering
+        if ((state == VState.Gathering || state == VState.AttackingAnimal) && animator != null)
+        {
+            animator.SetBool("IsMoving", false);
+            _wasVillagerMoving = false;
+        }
+
         if (state == VState.Gathering && targetNode != null && animator != null)
         {
             if (targetNode.ResourceType == ResourceType.Wood)
@@ -535,6 +555,7 @@ public class Villager : Unit
     {
         if (!isClient) return;
 
+        animator.SetBool("IsMoving", false);
         animator.SetBool("IsChopping", false);
         animator.SetBool("IsDigging", false);
         animator.SetBool("IsGathering", false);
@@ -554,6 +575,7 @@ public class Villager : Unit
                 animator.SetBool("IsGathering", true);
                 break;
             case 4:
+                animator.SetBool("IsThrusting", true);
                 ShowKnife(true);
                 break;
         }

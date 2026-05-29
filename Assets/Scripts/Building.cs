@@ -426,7 +426,18 @@ public class Building : NetworkBehaviour
     {
         if (isClient && !isServer) return;
         syncHealth = Mathf.Max(0, syncHealth - amount);
+
+        if (isServer) RpcOnBuildingDamage(transform.position);
+
         if (syncHealth <= 0) OnBuildingDestroyed();
+    }
+
+    [ClientRpc]
+    private void RpcOnBuildingDamage(Vector3 pos)
+    {
+        if (isServer) return;
+        EffectManager.Instance?.PlayBuildingHitEffect(pos);
+        ScreenShake.Instance?.LightShake();
     }
 
     private void OnSyncHealthChanged(int oldVal, int newVal)
@@ -436,6 +447,7 @@ public class Building : NetworkBehaviour
 
     private void OnBuildingDestroyed()
     {
+        if (isServer) RpcOnBuildingDestroyed(transform.position);
         EnemyAI.Instance?.OnBuildingDestroyed(this);
         AllBuildings.Remove(this);
         if (GameOverManager.Instance != null && NetworkServer.active)
@@ -444,6 +456,14 @@ public class Building : NetworkBehaviour
             NetworkServer.Destroy(gameObject);
         else
             Destroy(gameObject);
+    }
+
+    [ClientRpc]
+    private void RpcOnBuildingDestroyed(Vector3 pos)
+    {
+        if (isServer) return;
+        EffectManager.Instance?.PlayDeathEffect(pos);
+        ScreenShake.Instance?.HeavyShake();
     }
 
     public string            BuildingName     => buildingName;
