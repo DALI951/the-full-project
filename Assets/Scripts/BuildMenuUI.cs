@@ -46,11 +46,15 @@ public class BuildMenuUI : MonoBehaviour
 
     private void Start()
     {
-        // Attach hover tooltips to build buttons
+        // Attach click listeners and hover tooltips to build buttons
         for (int i = 0; i < buildButtons.Length && i < buildings.Length; i++)
         {
             if (buildButtons[i] == null) continue;
             int idx     = i;
+            
+            // Click listener
+            buildButtons[i].onClick.AddListener(() => OnBuildButtonClicked(idx));
+            
             var trigger = buildButtons[i].gameObject
                             .AddComponent<UnityEngine.EventSystems.EventTrigger>();
 
@@ -84,8 +88,7 @@ public class BuildMenuUI : MonoBehaviour
     public void Hide()
     {
         buildPanel?.SetActive(false);
-        HideBuildTooltip();   
-        BuildingPlacer.Instance?.CancelPlacement();
+        HideBuildTooltip();
     }
 
     public void OnBuildButtonClicked(int index)
@@ -97,7 +100,6 @@ public class BuildMenuUI : MonoBehaviour
         {
             NetworkedPlayer.LocalInstance.CmdStartPlacing(
                 entry.buildingPrefab != null ? entry.buildingPrefab.name : "",
-                entry.constructionSitePrefab,
                 entry.buildTime,
                 entry.costFood, entry.costWood, entry.costGold);
         }

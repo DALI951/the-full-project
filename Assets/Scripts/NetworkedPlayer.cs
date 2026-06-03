@@ -233,25 +233,26 @@ public class NetworkedPlayer : NetworkBehaviour
     }
 
     [Command]
-    public void CmdStartPlacing(string prefabName, GameObject sitePrefab, float buildTime, int costFood, int costWood, int costGold)
+    public void CmdStartPlacing(string prefabName, float buildTime, int costFood, int costWood, int costGold)
     {
-        TargetStartPlacing(prefabName, sitePrefab, buildTime, costFood, costWood, costGold);
+        TargetStartPlacing(prefabName, buildTime, costFood, costWood, costGold);
     }
 
     [TargetRpc]
-    private void TargetStartPlacing(string prefabName, GameObject sitePrefab, float buildTime, int costFood, int costWood, int costGold)
+    private void TargetStartPlacing(string prefabName, float buildTime, int costFood, int costWood, int costGold)
     {
         GameObject prefab = null;
+        GameObject sitePrefab = null;
         Material ghostMat = null;
         if (BuildMenuUI.AllEntries != null)
         {
             foreach (var entry in BuildMenuUI.AllEntries)
             {
                 if (entry.buildingPrefab != null && entry.buildingPrefab.name == prefabName)
-                { prefab = entry.buildingPrefab; ghostMat = entry.ghostMaterial; break; }
+                { prefab = entry.buildingPrefab; sitePrefab = entry.constructionSitePrefab; ghostMat = entry.ghostMaterial; break; }
             }
         }
-        if (prefab == null) return;
+        if (prefab == null || sitePrefab == null) return;
         BuildingPlacer.Instance?.StartPlacing(prefab, sitePrefab, buildTime, ghostMat, costFood, costWood, costGold);
     }
 
