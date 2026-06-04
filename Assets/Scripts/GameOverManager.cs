@@ -19,13 +19,21 @@ public class GameOverManager : NetworkBehaviour
     [Server]
     public void CheckGameOver(int playerId)
     {
-        bool hasBuildings = false;
+        bool hasAnything = false;
         foreach (Building b in Building.AllBuildings)
         {
             if (b != null && b.OwnerPlayerId == playerId)
-            { hasBuildings = true; break; }
+            { hasAnything = true; break; }
         }
-        if (!hasBuildings)
+        if (!hasAnything)
+        {
+            foreach (Unit u in UnitSelectionManager.Instance?.allUnitsList ?? new System.Collections.Generic.List<Unit>())
+            {
+                if (u != null && u.OwnerPlayerId == playerId)
+                { hasAnything = true; break; }
+            }
+        }
+        if (!hasAnything)
             RpcGameOver(playerId);
     }
 

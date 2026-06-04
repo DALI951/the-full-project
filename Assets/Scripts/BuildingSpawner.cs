@@ -35,7 +35,7 @@ public class BuildingSpawner : MonoBehaviour
         {
             SpawnForPlayer(all[0].playerIndex, all[0].playerIndex, all[0].connectionToClient, false);
 
-            int enemyPlayerIdx = 8;
+            int enemyPlayerIdx = all[0].playerIndex + 1;
             SpawnAreaManager area = FindObjectOfType<SpawnAreaManager>();
             int count = area != null ? area.GetSpawnCount() : 10;
             int enemySpawnIdx = count > 0 ? (all[0].playerIndex + count / 2) % count : 0;

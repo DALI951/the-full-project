@@ -38,6 +38,7 @@ public class EnemyAI : MonoBehaviour
     [SerializeField] private GameObject farmPrefab;
     [SerializeField] private GameObject lumberMillPrefab;
     [SerializeField] private GameObject marketPrefab;
+    [SerializeField] private GameObject constructionSitePrefab;
 
     [Header("Adaptive Difficulty")]
     private int gamesPlayed = 0;
@@ -263,11 +264,18 @@ public class EnemyAI : MonoBehaviour
 
     private void AssignBuilderToBuild(Vector3 pos, GameObject prefab)
     {
+        if (constructionSitePrefab == null) return;
         Villager builder = FindIdleVillager();
         if (builder == null) return;
         Vector3 clampedPos = ClampToMap(pos);
-        builder.MoveTo(clampedPos);
-        builder.SetFirstWaypoint(clampedPos);
+        GameObject siteGO = Object.Instantiate(constructionSitePrefab, clampedPos, Quaternion.identity);
+        ConstructionSite site = siteGO.GetComponent<ConstructionSite>();
+        if (site == null) { Object.Destroy(siteGO); return; }
+        int cost = GetBuildingCost(prefab);
+        site.Initialize(prefab, 10f, cost, cost, cost / 2);
+        site.SetOwnerOnServer(enemyPlayerId);
+        NetworkServer.Spawn(siteGO);
+        builder.BuildAt(site);
     }
 
     // ════════════════════════════════════════════════════════════════════

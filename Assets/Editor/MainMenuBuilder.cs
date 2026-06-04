@@ -307,6 +307,9 @@ public static class MainMenuBuilder
         var browserTabBtn = CreateTabButton(tabRow.transform, "BtnBrowserTab",
             "Server Browser", btnGray);
 
+        directTabBtn.onClick.AddListener(() => mainMenu.ShowJoinTab(true));
+        browserTabBtn.onClick.AddListener(() => mainMenu.ShowJoinTab(false));
+
         // Direct IP tab
         var directIPTab = CreateRect("DirectIPTab", joinBox.transform);
         AddLayoutElement(directIPTab.gameObject, -1, 140);
@@ -644,9 +647,13 @@ public static class MainMenuBuilder
 
     static void SetRect(RectTransform rt, float w, float h, float x, float y, TextAnchor anchor)
     {
-        rt.anchorMin = new Vector2(0.5f, 0.5f);
-        rt.anchorMax = new Vector2(0.5f, 0.5f);
-        rt.pivot = new Vector2(0.5f, 0.5f);
+        float hx = anchor == TextAnchor.UpperLeft || anchor == TextAnchor.MiddleLeft || anchor == TextAnchor.LowerLeft ? 0f :
+                   anchor == TextAnchor.UpperRight || anchor == TextAnchor.MiddleRight || anchor == TextAnchor.LowerRight ? 1f : 0.5f;
+        float hy = anchor == TextAnchor.UpperLeft || anchor == TextAnchor.UpperCenter || anchor == TextAnchor.UpperRight ? 1f :
+                   anchor == TextAnchor.LowerLeft || anchor == TextAnchor.LowerCenter || anchor == TextAnchor.LowerRight ? 0f : 0.5f;
+        rt.anchorMin = new Vector2(hx, hy);
+        rt.anchorMax = new Vector2(hx, hy);
+        rt.pivot = new Vector2(hx, hy);
         rt.sizeDelta = new Vector2(w, h);
         rt.anchoredPosition = new Vector3(x, y);
     }

@@ -6,6 +6,8 @@ Builds/
 UserSettings/
 MemoryCaptures/
 .vs/
+SceneBackups/
+.opencode/
 *.csproj
 *.unityproj
 *.sln

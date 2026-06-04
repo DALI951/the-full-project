@@ -32,6 +32,8 @@ public class SelectionManager : MonoBehaviour
         Instance = this;
     }
 
+    private Collider[] overlapCache = new Collider[128];
+
     private void Update()
     {
         UpdateCursor();
@@ -290,9 +292,11 @@ public class SelectionManager : MonoBehaviour
         // Fallback: raycast everything, skip units/buildings/resources
         RaycastHit[] all = Physics.RaycastAll(ray, Mathf.Infinity);
         System.Array.Sort(all, (a, b) => a.distance.CompareTo(b.distance));
+        int hitCount = Mathf.Min(all.Length, overlapCache.Length);
 
-        foreach (var h in all)
+        for (int i = 0; i < hitCount; i++)
         {
+            var h = all[i];
             if (h.collider.GetComponentInParent<Unit>() != null) continue;
             if (h.collider.GetComponentInParent<Building>() != null) continue;
             if (h.collider.GetComponentInParent<ResourceNode>() != null) continue;

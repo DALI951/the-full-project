@@ -354,39 +354,6 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
 
     public void OnPointerClick(PointerEventData eventData)
     {
-        // Duplicate the right-click logic here as fallback
-        if (eventData.button != PointerEventData.InputButton.Right) return;
-        
-        Vector2 local;
-        Camera eventCamera = eventData.pressEventCamera;
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(minimapRect, eventData.position, eventCamera, out local))
-            return;
-
-        Rect rect = minimapRect.rect;
-        if (local.x < 0 || local.x > rect.width || local.y < 0 || local.y > rect.height)
-            return;
-
-        Vector3? world = MinimapLocalToWorld(local);
-        if (!world.HasValue) return;
-
-        var selected = SelectionManager.Instance?.SelectedUnits;
-        if (selected == null || selected.Count == 0) return;
-
-        bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
-
-        if (shift)
-            SelectionManager.Instance?.AddFormationWaypoints(world.Value);
-        else
-        {
-            foreach (Unit u in selected)
-                if (u != null) u.ClearWaypoints();
-
-            MoveFlag.Instance?.ClearAllFlags();
-            MoveFlag.Instance?.ShowFlag(world.Value, false);
-            SelectionManager.Instance?.AssignFormationWaypoints(world.Value);
-        }
-        
-        // CRITICAL: Stop the click from propagating to 3D raycasts
-        eventData.Use();
+        // Right-click handled in OnPointerDown — stub required for IPointerClickHandler interface
     }
 }

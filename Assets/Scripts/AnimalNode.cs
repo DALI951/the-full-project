@@ -56,11 +56,6 @@ public class AnimalNode : ResourceNode
 
     private void Update()
     {
-        if (animator != null && animator.GetBool("Die"))
-        {
-            Debug.LogError("Die was set! Stack trace:", this);
-            animator.SetBool("Die", false); // Force reset to see when it happens again
-        }
         if (dieComplete) return;
 
         if (isDying)

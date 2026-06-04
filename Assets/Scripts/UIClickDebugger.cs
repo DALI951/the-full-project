@@ -38,7 +38,7 @@ public class UIClickDebugger : MonoBehaviour
         if (Input.GetKeyDown(toggleKey))
         {
             overlayOn = !overlayOn;
-            Debug.Log($"[UIClickDebugger] overlay {(overlayOn ? "ON  (press {toggleKey} to hide)" : "OFF")}");
+            Debug.Log("[UIClickDebugger] overlay " + (overlayOn ? "ON  (press " + toggleKey + " to hide)" : "OFF"));
         }
 
         if (autoPatch)

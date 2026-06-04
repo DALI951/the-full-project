@@ -70,6 +70,23 @@ public class Building : NetworkBehaviour
             bc.size   = new Vector3(2.5f, 2.5f, 2.5f);
             bc.center = new Vector3(0f, 1.25f, 0f);
         }
+        else
+        {
+            // Slightly scale down existing colliders to prevent z-fighting
+            if (col is BoxCollider bc)
+            {
+                bc.size *= 0.98f; // 2% smaller
+            }
+            else if (col is CapsuleCollider cc)
+            {
+                cc.radius *= 0.98f;
+                cc.height *= 0.98f;
+            }
+            else if (col is SphereCollider sc)
+            {
+                sc.radius *= 0.98f;
+            }
+        }
 
         if (spawnPoint == null)
             Debug.LogWarning($"[{buildingName}] No spawnPoint assigned!");
@@ -435,7 +452,7 @@ public class Building : NetworkBehaviour
     [ClientRpc]
     private void RpcOnBuildingDamage(Vector3 pos)
     {
-        if (isServer) return;
+        if (!isClient) return;
         EffectManager.Instance?.PlayBuildingHitEffect(pos);
         ScreenShake.Instance?.LightShake();
     }
@@ -461,7 +478,7 @@ public class Building : NetworkBehaviour
     [ClientRpc]
     private void RpcOnBuildingDestroyed(Vector3 pos)
     {
-        if (isServer) return;
+        if (!isClient) return;
         EffectManager.Instance?.PlayDeathEffect(pos);
         ScreenShake.Instance?.HeavyShake();
     }

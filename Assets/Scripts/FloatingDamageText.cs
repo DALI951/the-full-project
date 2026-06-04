@@ -32,7 +32,7 @@ public class FloatingDamageText : MonoBehaviour
 
         while (elapsed < fadeDuration)
         {
-            elapsed += Time.deltaTime;
+            elapsed += Time.unscaledDeltaTime;
             float t = Mathf.Clamp01(elapsed / fadeDuration);
             float curveT = floatCurve.Evaluate(t);
 

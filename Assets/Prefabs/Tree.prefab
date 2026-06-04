@@ -14,6 +14,7 @@ GameObject:
   - component: {fileID: 6147799106733296908}
   - component: {fileID: 1785052952470976569}
   - component: {fileID: -1773379791477164572}
+  - component: {fileID: -102}
   m_Layer: 8
   m_Name: Tree
   m_TagString: Untagged
@@ -21,6 +22,23 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
+--- !u!114 &-102
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 790901911832693335}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9b91ecbcc199f4492b9a91e820070131, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  sceneId: 0
+  _assetId: 3329233298
+  serverOnly: 0
+  visibility: 0
+  hasSpawned: 0
 --- !u!4 &8155034412693667072
 Transform:
   m_ObjectHideFlags: 0

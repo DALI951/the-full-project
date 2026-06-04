@@ -144,14 +144,14 @@ public class MainMenuUI : MonoBehaviour
         hostPanel?.SetActive(true);
 
         bool hasNet = HasNetworkConnection();
-        if (startHostButton) startHostButton.interactable = hasNet;
+        if (startHostButton) startHostButton.interactable = true;
         if (noWifiWarning)   noWifiWarning.SetActive(!hasNet);
 
         if (hostIPText) hostIPText.text = $"Your IP:  {LANDiscovery.GetLocalIP()}";
 
         SetHostStatus(hasNet
             ? "Configure options then press Host Game."
-            : "No WiFi / network detected. Cannot host.");
+            : "No WiFi detected. You may still be able to host a local server.");
     }
 
     public void ShowJoinPanel()
@@ -159,7 +159,7 @@ public class MainMenuUI : MonoBehaviour
         HideAll();
         joinPanel?.SetActive(true);
         directIPTab?.SetActive(true);
-        browserTab?.SetActive(true);
+        browserTab?.SetActive(false);
         SetJoinStatus("");
         RefreshServerList();
         LANDiscovery.Instance?.StartBrowsing();
@@ -189,11 +189,6 @@ public class MainMenuUI : MonoBehaviour
 
     public void OnStartHost()
     {
-        if (!HasNetworkConnection())
-        {
-            SetHostStatus("❌ No network connection. Connect to WiFi and retry.");
-            return;
-        }
         if (RTSNetworkManager.Instance == null)
         {
             SetHostStatus("❌ NetworkManager not found in scene!");
@@ -210,10 +205,24 @@ public class MainMenuUI : MonoBehaviour
         if (startHostButton) startHostButton.interactable = false;
         SetHostStatus("Starting lobby...");
 
-        RTSNetworkManager.Instance.StartHost();
+        try
+        {
+            RTSNetworkManager.Instance.StartHost();
+        }
+        catch (System.Exception e)
+        {
+            LoadingScreen.Instance?.Hide();
+            if (startHostButton) startHostButton.interactable = true;
+            SetHostStatus($"❌ Host failed: {e.Message}");
+            return;
+        }
 
         string hostName = SettingsManager.Instance?.PlayerName ?? "Host";
-        LANDiscovery.Instance?.StartAdvertising(hostName, 1, maxPlayers);
+        try
+        {
+            LANDiscovery.Instance?.StartAdvertising(hostName, 1, maxPlayers);
+        }
+        catch { }
     }
 
     private IEnumerator HideLoadingAfterTimeout(float timeout)
@@ -234,7 +243,7 @@ public class MainMenuUI : MonoBehaviour
     public void OnHostFailed(string reason)
     {
         LoadingScreen.Instance?.Hide();
-        if (startHostButton) startHostButton.interactable = HasNetworkConnection();
+        if (startHostButton) startHostButton.interactable = true;
         SetHostStatus($"❌ Host failed: {reason}");
         LANDiscovery.Instance?.StopAdvertising();
     }
@@ -297,8 +306,8 @@ public class MainMenuUI : MonoBehaviour
 
     public void ShowJoinTab(bool showDirect)
     {
-        directIPTab?.SetActive(true);
-        browserTab?.SetActive(true);
+        directIPTab?.SetActive(showDirect);
+        browserTab?.SetActive(!showDirect);
         RefreshServerList();
     }
 

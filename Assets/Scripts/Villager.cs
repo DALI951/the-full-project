@@ -77,13 +77,13 @@ public class Villager : Unit
     {
         base.Update();
 
-        if (targetNode != null && targetNode.gameObject == null)
+        if (targetNode == null)
         {
             targetNode = null;
             gatherSlot = -1;
             EnterState(VState.Idle);
         }
-        if (targetSite != null && targetSite.gameObject == null)
+        if (targetSite == null)
         {
             targetSite = null;
             EnterState(VState.Idle);
@@ -467,19 +467,18 @@ public class Villager : Unit
 
     private void EnterState(VState next)
     {
-        // Reset work/attack animation bools and hide tools when leaving work/attack states
-        if (animator != null && (state == VState.Gathering || state == VState.AttackingAnimal))
+        // Always clear all work/attack animation bools when leaving any state
+        if (animator != null)
         {
             animator.SetBool("IsChopping", false);
             animator.SetBool("IsDigging", false);
             animator.SetBool("IsGathering", false);
             animator.SetBool("IsThrusting", false);
-            HideTools();
+            animator.SetBool("IsPunching", false);
         }
 
         state = next;
 
-        // Set work animation bool and tool based on resource type when entering Gathering
         if ((state == VState.Gathering || state == VState.AttackingAnimal) && animator != null)
         {
             animator.SetBool("IsMoving", false);
@@ -501,7 +500,7 @@ public class Villager : Unit
             else if (targetNode.ResourceType == ResourceType.Food)
             {
                 animator.SetBool("IsGathering", true);
-                HideTools(); // Gathering meat uses bare hands
+                HideTools();
             }
             else
             {
@@ -559,6 +558,8 @@ public class Villager : Unit
         animator.SetBool("IsChopping", false);
         animator.SetBool("IsDigging", false);
         animator.SetBool("IsGathering", false);
+        animator.SetBool("IsThrusting", false);
+        animator.SetBool("IsPunching", false);
         HideTools();
 
         switch (newVal)

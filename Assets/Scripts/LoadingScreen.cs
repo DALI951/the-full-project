@@ -30,8 +30,6 @@ public class LoadingScreen : MonoBehaviour
         if (progressBar != null) progressBar.value = 0f;
         if (canvasGroup != null)
             StartCoroutine(FadeAlpha(0f, 1f, fadeDuration));
-        else
-            canvasGroup.alpha = 1f;
     }
 
     public void Show(string message, string detail)

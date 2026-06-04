@@ -20,11 +20,6 @@ public class RTSCamera : MonoBehaviour
     [Header("Map Clamp")]
     [Tooltip("Extra camera movement beyond map bounds so screen edges can still reach the full map.")]
     [SerializeField] private float edgeAccessPadding = 8f;
-    private void Start()
-    {
-        SetCameraPosition(PlayerColorManager.LocalPlayerIndex);
-    }
-
     public void SetCameraPosition(int playerIndex)
     {
         Vector3 focus = Vector3.zero;

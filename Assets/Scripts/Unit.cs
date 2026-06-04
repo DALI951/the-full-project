@@ -408,7 +408,7 @@ public class Unit : NetworkBehaviour
     [ClientRpc]
     private void RpcOnTakeDamage(int amount, Vector3 pos)
     {
-        if (isServer) return;
+        if (!isClient) return;
         EffectManager.Instance?.PlayHitEffect(pos);
         if (damageTextPrefab != null)
         {
@@ -421,7 +421,7 @@ public class Unit : NetworkBehaviour
     [ClientRpc]
     private void RpcOnDeath(Vector3 pos)
     {
-        if (isServer) return;
+        if (!isClient) return;
         EffectManager.Instance?.PlayDeathEffect(pos);
     }
 

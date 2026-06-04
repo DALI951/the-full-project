@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using TMPro;
+using Mirror;
 
 /// <summary>
 /// PauseMenu — press Escape to pause/resume.
@@ -68,6 +69,8 @@ public class PauseMenu : MonoBehaviour
     public void QuitToMenu()
     {
         Time.timeScale = 1f; // Always restore before scene change
+        if (NetworkServer.active || NetworkClient.active)
+            Mirror.NetworkManager.singleton?.StopHost();
         SceneManager.LoadScene(mainMenuScene);
     }
 

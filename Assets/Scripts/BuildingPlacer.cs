@@ -37,6 +37,7 @@ public class BuildingPlacer : MonoBehaviour
         if (!isPlacing) return;
 
         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+        
         if (Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity, groundLayer))
         {
             Vector3 ghostPos = hit.point;
@@ -75,10 +76,21 @@ public class BuildingPlacer : MonoBehaviour
         storedCostWood = costWood;
         storedCostGold = costGold;
 
+        if (buildPrefab == null)
+        {
+            Debug.LogError("[BuildingPlacer] buildPrefab is NULL!");
+            return;
+        }
+
         ghostObject      = Instantiate(buildPrefab);
         ghostObject.name = "GhostPreview";
-        foreach (Renderer r in ghostObject.GetComponentsInChildren<Renderer>())
+        
+        Renderer[] renderers = ghostObject.GetComponentsInChildren<Renderer>();
+        foreach (Renderer r in renderers)
+        {
             if (ghostMaterial != null) r.material = ghostMaterial;
+        }
+        
         foreach (MonoBehaviour mb in ghostObject.GetComponentsInChildren<MonoBehaviour>())
             mb.enabled = false;
         foreach (Collider c in ghostObject.GetComponentsInChildren<Collider>())

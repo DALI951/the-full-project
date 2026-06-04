@@ -9,9 +9,6 @@ using UnityEngine.AI;
 /// </summary>
 public class ResourceBuilding : MonoBehaviour
 {
-    [Header("Ownership")]
-    [SerializeField] private int ownerPlayerId = 0;
-
     [Header("Resource Generation")]
     [SerializeField] private ResourceType resourceType  = ResourceType.Food;
     [SerializeField] private int          amountPerTick = 5;
@@ -27,9 +24,6 @@ public class ResourceBuilding : MonoBehaviour
 
     private void Start()
     {
-        Building b = GetComponent<Building>();
-        if (b != null) ownerPlayerId = b.OwnerPlayerId;
-
         // Ensure a collider exists so OnMouseDown fires
         if (GetComponent<Collider>() == null && GetComponentInChildren<Collider>() == null)
         {
@@ -60,7 +54,9 @@ public class ResourceBuilding : MonoBehaviour
         {
             timer = 0f;
             int generated = amountPerTick * workers.Count;
-            NetworkedPlayer owner = NetworkedPlayer.Get(ownerPlayerId);
+            Building b = GetComponent<Building>();
+            int pid = b != null ? b.OwnerPlayerId : -1;
+            NetworkedPlayer owner = NetworkedPlayer.Get(pid);
             if (owner != null)
             {
                 switch (resourceType)
