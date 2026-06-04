@@ -76,6 +76,37 @@ public class LobbyPlayer : NetworkBehaviour
     [ClientRpc] public void RpcStartCountdown() => LobbyUI.Instance?.StartLocalCountdown();
     [ClientRpc] public void RpcHideCountdown()  => LobbyUI.Instance?.HideCountdown();
 
+    [ClientRpc]
+    public void RpcSyncBotList(string json)
+    {
+        var wrapper = JsonUtility.FromJson<BotListWrapper>(json);
+        var netMan = RTSNetworkManager.Instance;
+        if (netMan == null) return;
+        netMan.aiPlayers.Clear();
+        if (wrapper?.bots != null)
+            netMan.aiPlayers.AddRange(wrapper.bots);
+        LobbyUI.Instance?.RefreshPlayerList();
+    }
+
+    [ClientRpc] public void RpcShowColorWarning()
+    {
+        LobbyUI.Instance?.SetStatus("<color=red>Duplicate colors! Everyone must have a unique color.</color>");
+    }
+
+    // ── Chat ──
+    [Command]
+    public void CmdSendChat(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return;
+        RpcReceiveChat(displayName, playerColor, message.Trim());
+    }
+
+    [ClientRpc]
+    public void RpcReceiveChat(string senderName, Color senderColor, string message)
+    {
+        LobbyUI.Instance?.OnChatMessage(senderName, senderColor, message);
+    }
+
     void OnNameChanged(string oldVal, string newVal)  => LobbyUI.Instance?.RefreshPlayerList();
     void OnColorChanged(Color oldVal, Color newVal)   => LobbyUI.Instance?.RefreshPlayerList();
     void OnReadyChanged(bool oldVal, bool newVal)     => LobbyUI.Instance?.RefreshPlayerList();

@@ -82,7 +82,7 @@ public class Infantry : Unit
     [ClientRpc]
     private void RpcPlayAttackAnim()
     {
-        if (isServer) return;
+        if (!isClient) return;
         PlayAttackAnim();
     }
 
@@ -129,7 +129,7 @@ public class Infantry : Unit
     [ClientRpc]
     private void RpcPlayDeathAnim()
     {
-        if (isServer) return;
+        if (!isClient) return;
         if (animator != null)
         {
             animator.SetBool("Die", true);

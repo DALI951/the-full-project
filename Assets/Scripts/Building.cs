@@ -452,7 +452,7 @@ public class Building : NetworkBehaviour
     [ClientRpc]
     private void RpcOnBuildingDamage(Vector3 pos)
     {
-        if (isServer) return;
+        if (!isClient) return;
         EffectManager.Instance?.PlayBuildingHitEffect(pos);
         ScreenShake.Instance?.LightShake();
     }
@@ -478,7 +478,7 @@ public class Building : NetworkBehaviour
     [ClientRpc]
     private void RpcOnBuildingDestroyed(Vector3 pos)
     {
-        if (isServer) return;
+        if (!isClient) return;
         EffectManager.Instance?.PlayDeathEffect(pos);
         ScreenShake.Instance?.HeavyShake();
     }

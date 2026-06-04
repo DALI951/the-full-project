@@ -211,9 +211,12 @@ MonoBehaviour:
   currentBuildingHealth: 0
   unitTrainingTimes:
   - 2
-  unitCostFood: 0a000000
-  unitCostWood: 00000000
-  unitCostGold: 00000000
+  unitCostFood:
+  - 50
+  unitCostWood:
+  - 0
+  unitCostGold:
+  - 0
   populationPerUnit: 1
 --- !u!208 &1935189779471516396
 NavMeshObstacle:

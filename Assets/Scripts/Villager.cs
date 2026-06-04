@@ -77,13 +77,13 @@ public class Villager : Unit
     {
         base.Update();
 
-        if (targetNode != null && targetNode.gameObject == null)
+        if (targetNode == null)
         {
             targetNode = null;
             gatherSlot = -1;
             EnterState(VState.Idle);
         }
-        if (targetSite != null && targetSite.gameObject == null)
+        if (targetSite == null)
         {
             targetSite = null;
             EnterState(VState.Idle);

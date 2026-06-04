@@ -139,9 +139,15 @@ MonoBehaviour:
   unitTrainingTimes:
   - 2
   - 5
-  unitCostFood: 1400000014000000
-  unitCostWood: 0a00000000000000
-  unitCostGold: 0000000014000000
+  unitCostFood:
+  - 50
+  - 80
+  unitCostWood:
+  - 30
+  - 40
+  unitCostGold:
+  - 25
+  - 35
   populationPerUnit: 1
 --- !u!208 &9218685879828083107
 NavMeshObstacle:

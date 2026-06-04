@@ -163,7 +163,7 @@ public class LANDiscovery : MonoBehaviour
                 }
                 catch { }
             }
-            yield return null;
+            yield return new WaitForSecondsRealtime(0.1f);
         }
     }
 

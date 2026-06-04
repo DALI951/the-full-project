@@ -7,5 +7,15 @@
       "healthEndpoint": "/health"
     }
   },
-  "agentInstructions": "This project has an AI Bridge system for Unity scene analysis and fixing. See .opencode/skills/ai-scene-agent/ for the behavior loop. Before making changes to the Unity scene, always: (1) capture screenshots via the bridge server, (2) analyze visually, (3) query current scene data, (4) apply fixes, (5) re-capture to verify.\n\nBe proactive — don't wait for step-by-step instructions. If you see something that needs fixing (e.g. broken scene, missing component, build error), propose and execute a fix. If the user asks to do something, identify and do all the sub-steps needed without asking for confirmation on each one. Run parallel tool calls when possible. Always think ahead and take initiative."
+  "agentInstructions": "This project has an AI Bridge system for Unity scene analysis and fixing. See .opencode/skills/ai-scene-agent/ for the behavior loop. Before making changes to the Unity scene, always: (1) capture screenshots via the bridge server, (2) analyze visually, (3) query current scene data, (4) apply fixes, (5) re-capture to verify.\n\nBe proactive \u2014 don\u0027t wait for step-by-step instructions. If you see something that needs fixing (e.g. broken scene, missing component, build error), propose and execute a fix. If the user asks to do something, identify and do all the sub-steps needed without asking for confirmation on each one. Run parallel tool calls when possible. Always think ahead and take initiative.",
+  "mcp": {
+    "ai-game-developer": {
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer LvLqyU-cWGa5kVXFoJawiaXAyjpqnAdfHAZYEajku8E"
+      },
+      "type": "remote",
+      "url": "http://localhost:26584"
+    }
+  }
 }

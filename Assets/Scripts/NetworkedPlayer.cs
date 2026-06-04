@@ -306,10 +306,7 @@ public class NetworkedPlayer : NetworkBehaviour
             {
                 NetworkedPlayer np = kv.Value?.identity?.GetComponent<NetworkedPlayer>();
                 if (np != null)
-                {
                     np.RpcDepleteResource(pos);
-                    return;
-                }
             }
         }
     }

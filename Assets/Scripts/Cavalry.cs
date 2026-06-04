@@ -88,7 +88,7 @@ public class Cavalry : Unit
     [ClientRpc]
     private void RpcPlayAttackAnim()
     {
-        if (isServer) return;
+        if (!isClient) return;
         PlayAttackAnim();
     }
 
@@ -124,7 +124,7 @@ public class Cavalry : Unit
     [ClientRpc]
     private void RpcPlayDeathAnim()
     {
-        if (isServer) return;
+        if (!isClient) return;
         if (animator != null)
         {
             animator.SetBool("Die", true);

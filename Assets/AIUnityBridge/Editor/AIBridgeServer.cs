@@ -16,6 +16,7 @@ public static class AIBridgeServer
     private static Thread _serverThread;
     private static int _port = 9876;
     private static bool _running;
+    private static bool _startFailed;
 
     private static readonly Dictionary<string, Func<HttpListenerRequest, string>> _routes;
 
@@ -41,7 +42,7 @@ public static class AIBridgeServer
 
     private static void OnEditorUpdate()
     {
-        if (!_running && _listener == null)
+        if (!_running && !_startFailed)
             StartServer();
     }
 
@@ -55,6 +56,7 @@ public static class AIBridgeServer
             _listener.Prefixes.Add($"http://localhost:{_port}/");
             _listener.Start();
             _running = true;
+            _startFailed = false;
 
             _serverThread = new Thread(ServerLoop)
             {
@@ -70,6 +72,7 @@ public static class AIBridgeServer
             Debug.LogError($"[AIBridge] Failed to start server: {e.Message}");
             _running = false;
             _listener = null;
+            _startFailed = true;
         }
     }
 

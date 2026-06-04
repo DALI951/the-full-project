@@ -4,6 +4,19 @@ using UnityEngine;
 using Mirror;
 using UnityEngine.SceneManagement;
 
+[System.Serializable]
+public class AIPlayerInfo
+{
+    public string name;
+    public Color color;
+    public int teamIndex;
+    public int playerIndex;
+    public bool isReady;
+}
+
+[System.Serializable]
+public class BotListWrapper { public AIPlayerInfo[] bots; }
+
 public class RTSNetworkManager : NetworkManager
 {
     public static RTSNetworkManager Instance => singleton as RTSNetworkManager;
@@ -13,6 +26,9 @@ public class RTSNetworkManager : NetworkManager
     [Header("RTS Settings")]
     [SerializeField] private string gameSceneName   = "GameScene";
     [SerializeField] public  int    requiredPlayers = 2;
+    [SerializeField] private GameObject botPrefab;
+
+    [System.NonSerialized] public List<AIPlayerInfo> aiPlayers = new List<AIPlayerInfo>();
 
     private bool      _gameHasStarted      = false;
     private bool      _wasConnected        = false;
@@ -29,6 +45,7 @@ public class RTSNetworkManager : NetworkManager
     {
         base.OnStartHost();
         _gameHasStarted = false;
+        aiPlayers.Clear();
 
         if (skipLobbyAndCountdown)
         {
@@ -152,6 +169,23 @@ public class RTSNetworkManager : NetworkManager
             }
         }
 
+        if (botPrefab != null)
+        {
+            foreach (AIPlayerInfo bot in aiPlayers)
+            {
+                GameObject botGO = Instantiate(botPrefab, Vector3.zero, Quaternion.identity);
+                NetworkedPlayer np = botGO.GetComponent<NetworkedPlayer>();
+                if (np != null)
+                {
+                    np.ServerSetup(bot.playerIndex, bot.name, bot.teamIndex);
+                    names.Add(bot.name);
+                    indices.Add(bot.playerIndex);
+                    teams.Add(bot.teamIndex);
+                }
+                NetworkServer.Spawn(botGO);
+            }
+        }
+
         if (names.Count > 0)
         {
             NetworkedPlayer.BroadcastSyncPlayerList(names.ToArray(), indices.ToArray(), teams.ToArray());
@@ -181,6 +215,8 @@ public class RTSNetworkManager : NetworkManager
 
         if (!_gameHasStarted)
         {
+            ReassignBotIndices();
+            SyncBotListToClients();
             LobbyUI.Instance?.RefreshPlayerList();
             LANDiscovery.Instance?.UpdatePlayerCount(Mathf.Max(0, numPlayers - 1));
         }
@@ -222,6 +258,12 @@ public class RTSNetworkManager : NetworkManager
             indices.Add(lp.playerIndex);
             teams.Add(lp.teamIndex);
         }
+        foreach (AIPlayerInfo bot in aiPlayers)
+        {
+            names.Add(bot.name);
+            indices.Add(bot.playerIndex);
+            teams.Add(bot.teamIndex);
+        }
         NetworkedPlayer.BroadcastSyncPlayerList(names.ToArray(), indices.ToArray(), teams.ToArray());
     }
 
@@ -247,9 +289,48 @@ public class RTSNetworkManager : NetworkManager
         if (conn.identity.TryGetComponent(out LobbyPlayer lp))
             lp.ServerSetup(idx);
 
+        // Bump any bot occupying this slot
+        for (int i = aiPlayers.Count - 1; i >= 0; i--)
+        {
+            if (aiPlayers[i].playerIndex == idx)
+            {
+                aiPlayers.RemoveAt(i);
+                break;
+            }
+        }
+
         Debug.Log($"[RTSNetworkManager] Player {idx} added. Total: {numPlayers}");
+        SyncBotListToClients();
         LobbyUI.Instance?.RefreshPlayerList();
         LANDiscovery.Instance?.UpdatePlayerCount(numPlayers);
+    }
+
+    public int GetTotalPlayerCount()
+    {
+        int count = 0;
+        if (NetworkServer.active)
+        {
+            foreach (var conn in NetworkServer.connections.Values)
+            {
+                if (conn?.identity == null) continue;
+                if (conn.identity.TryGetComponent(out LobbyPlayer _)) count++;
+            }
+        }
+        return count + aiPlayers.Count;
+    }
+
+    public int GetReadyCount()
+    {
+        int ready = 0;
+        if (NetworkServer.active)
+        {
+            foreach (var conn in NetworkServer.connections.Values)
+            {
+                if (conn?.identity == null) continue;
+                if (conn.identity.TryGetComponent(out LobbyPlayer lp) && lp.isReady) ready++;
+            }
+        }
+        return ready + aiPlayers.FindAll(b => b.isReady).Count;
     }
 
     [Server]
@@ -257,14 +338,22 @@ public class RTSNetworkManager : NetworkManager
     {
         LobbyUI.Instance?.RefreshPlayerList();
 
-        int readyCount = 0, totalCount = 0;
-        foreach (var conn in NetworkServer.connections.Values)
+        if (HasDuplicateColors())
         {
-            if (conn?.identity == null) continue;
-            if (!conn.identity.TryGetComponent(out LobbyPlayer lp)) continue;
-            totalCount++;
-            if (lp.isReady) readyCount++;
+            if (_countdownCoroutine != null)
+            {
+                StopCoroutine(_countdownCoroutine);
+                _countdownCoroutine = null;
+                RpcCancelCountdown();
+            }
+            foreach (var conn in NetworkServer.connections.Values)
+                if (conn?.identity?.TryGetComponent(out LobbyPlayer lp) ?? false)
+                    { lp.RpcShowColorWarning(); break; }
+            return;
         }
+
+        int totalCount = GetTotalPlayerCount();
+        int readyCount = GetReadyCount();
 
         bool allReady = totalCount >= requiredPlayers
                      && readyCount == totalCount
@@ -287,6 +376,27 @@ public class RTSNetworkManager : NetworkManager
     }
 
     [Server]
+    private bool HasDuplicateColors()
+    {
+        var colors = new HashSet<Color>();
+        foreach (var conn in NetworkServer.connections.Values)
+        {
+            if (conn?.identity == null) continue;
+            if (conn.identity.TryGetComponent(out LobbyPlayer lp))
+            {
+                if (colors.Contains(lp.playerColor)) return true;
+                colors.Add(lp.playerColor);
+            }
+        }
+        foreach (var bot in aiPlayers)
+        {
+            if (colors.Contains(bot.color)) return true;
+            colors.Add(bot.color);
+        }
+        return false;
+    }
+
+    [Server]
     public void CancelCountdown()
     {
         if (_countdownCoroutine != null)
@@ -306,6 +416,121 @@ public class RTSNetworkManager : NetworkManager
         LobbyUI.Instance?.RefreshPlayerList();
     }
 
+    [Server]
+    public int AddBot()
+    {
+        int realCount = 0;
+        foreach (var conn in NetworkServer.connections.Values)
+        {
+            if (conn?.identity == null) continue;
+            if (conn.identity.TryGetComponent(out LobbyPlayer _)) realCount++;
+        }
+        int botIndex = realCount + aiPlayers.Count;
+        if (botIndex >= maxConnections) return -1;
+
+        var bot = new AIPlayerInfo
+        {
+            name = $"Bot {aiPlayers.Count + 1}",
+            color = LobbyPlayer.AvailableColors[botIndex % LobbyPlayer.AvailableColors.Length],
+            teamIndex = botIndex % 4,
+            playerIndex = botIndex,
+            isReady = false
+        };
+        aiPlayers.Add(bot);
+        SyncBotListToClients();
+        CheckAllReady();
+        return botIndex;
+    }
+
+    [Server]
+    public void RemoveBot(int slotIndex)
+    {
+        for (int i = 0; i < aiPlayers.Count; i++)
+        {
+            if (aiPlayers[i].playerIndex == slotIndex)
+            {
+                aiPlayers.RemoveAt(i);
+                break;
+            }
+        }
+        SyncBotListToClients();
+        LobbyUI.Instance?.RefreshPlayerList();
+    }
+
+    [Server]
+    public void SetBotReady(int slotIndex, bool ready)
+    {
+        for (int i = 0; i < aiPlayers.Count; i++)
+        {
+            if (aiPlayers[i].playerIndex == slotIndex)
+            {
+                aiPlayers[i].isReady = ready;
+                break;
+            }
+        }
+        SyncBotListToClients();
+        CheckAllReady();
+    }
+
+    [Server]
+    public void SetBotColor(int slotIndex, Color color)
+    {
+        for (int i = 0; i < aiPlayers.Count; i++)
+        {
+            if (aiPlayers[i].playerIndex == slotIndex)
+            {
+                aiPlayers[i].color = color;
+                break;
+            }
+        }
+        SyncBotListToClients();
+        LobbyUI.Instance?.RefreshPlayerList();
+    }
+
+    [Server]
+    public void SetBotTeam(int slotIndex, int team)
+    {
+        for (int i = 0; i < aiPlayers.Count; i++)
+        {
+            if (aiPlayers[i].playerIndex == slotIndex)
+            {
+                aiPlayers[i].teamIndex = team;
+                break;
+            }
+        }
+        SyncBotListToClients();
+        LobbyUI.Instance?.RefreshPlayerList();
+    }
+
+    [Server]
+    private void ReassignBotIndices()
+    {
+        int totalReal = 0;
+        foreach (var conn in NetworkServer.connections.Values)
+        {
+            if (conn?.identity == null) continue;
+            if (conn.identity.TryGetComponent(out LobbyPlayer _)) totalReal++;
+        }
+        for (int i = 0; i < aiPlayers.Count; i++)
+            aiPlayers[i].playerIndex = totalReal + i;
+    }
+
+    [Server]
+    private void SyncBotListToClients()
+    {
+        if (!NetworkServer.active) return;
+        string json = JsonUtility.ToJson(new BotListWrapper { bots = aiPlayers.ToArray() });
+        foreach (var conn in NetworkServer.connections.Values)
+        {
+            if (conn?.identity == null) continue;
+            if (conn.identity.TryGetComponent(out LobbyPlayer lp))
+            {
+                lp.RpcSyncBotList(json);
+                break;
+            }
+        }
+    }
+
     private IEnumerator CountdownRoutine()
     {
         RpcStartCountdown();
@@ -320,12 +545,8 @@ public class RTSNetworkManager : NetworkManager
         {
             if (conn?.identity == null) continue;
             if (conn.identity.TryGetComponent(out LobbyPlayer lp))
-            {
                 lp.RpcStartCountdown();
-                return;
-            }
         }
-        Debug.LogError("[RTSNetworkManager] No LobbyPlayer found to broadcast countdown start!");
     }
 
     private void RpcCancelCountdown()
@@ -334,12 +555,8 @@ public class RTSNetworkManager : NetworkManager
         {
             if (conn?.identity == null) continue;
             if (conn.identity.TryGetComponent(out LobbyPlayer lp))
-            {
                 lp.RpcHideCountdown();
-                return;
-            }
         }
-        Debug.LogError("[RTSNetworkManager] No LobbyPlayer found to broadcast countdown cancel!");
     }
 
     [Server]
