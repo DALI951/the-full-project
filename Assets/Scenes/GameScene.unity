@@ -4343,6 +4343,7 @@ MonoBehaviour:
   farmPrefab: {fileID: 0}
   lumberMillPrefab: {fileID: 0}
   marketPrefab: {fileID: 0}
+  constructionSitePrefab: {fileID: 0}
   currentStrategy: 0
   barracksPrefab: {fileID: 0}
   barracksCost: 150

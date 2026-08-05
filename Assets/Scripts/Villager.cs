@@ -79,14 +79,20 @@ public class Villager : Unit
 
         if (targetNode == null)
         {
-            targetNode = null;
-            gatherSlot = -1;
-            EnterState(VState.Idle);
+            if (state == VState.MovingToResource || state == VState.Gathering || state == VState.AttackingAnimal)
+            {
+                targetNode = null;
+                gatherSlot = -1;
+                EnterState(VState.Idle);
+            }
         }
         if (targetSite == null)
         {
-            targetSite = null;
-            EnterState(VState.Idle);
+            if (state == VState.MovingToBuild || state == VState.Building)
+            {
+                targetSite = null;
+                EnterState(VState.Idle);
+            }
         }
 
         // ── Animation handling ─────────────────────────────────────────
