@@ -61,10 +61,11 @@ public class BuildingSpawner : MonoBehaviour
                 spawnIdx = i;
             else
             {
-                if (i < team0Count)
-                    spawnIdx = i;
-                else
-                    spawnIdx = 9 - (i - team0Count);
+                // "Opponent goes across the map" = half a ring away. The old
+                // '9 - (i - team0Count)' produced index 8 for the second player,
+                // which sat on the SAME edge as index 0 instead of the far side.
+                int half = pCount / 2;
+                spawnIdx = i < team0Count ? i : (i + half) % pCount;
             }
             SpawnForPlayer(all[i].playerIndex, spawnIdx, all[i].connectionToClient, false);
         }

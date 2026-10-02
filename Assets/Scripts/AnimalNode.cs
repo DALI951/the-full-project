@@ -1,6 +1,5 @@
 using UnityEngine;
-using System.Collections.Generic;
-public class AnimalNode : ResourceNode
+using System.Collections.Generic;public class AnimalNode : ResourceNode
 {
     [Header("Wandering")]
     [SerializeField] private float wanderRadius   = 6f;
@@ -15,12 +14,14 @@ public class AnimalNode : ResourceNode
 
     private Vector3 wanderTarget;
     private float   lastWanderTime;
-    private bool    stopped;
-    private bool    isDying;
-    private bool    dieComplete;
+private bool stopped;
+    private bool isDying;
+    private bool dieComplete;
+    private bool hasIsMovingParam;
     private Quaternion startRotation;
     private float    dieProgress;
     private static int s_nextHerdId = 0;
+    private static readonly HashSet<string> s_warnedControllers = new HashSet<string>();
     private static readonly Dictionary<int, Vector3> s_herdTargets  = new Dictionary<int, Vector3>();
     private static readonly Dictionary<int, float>   s_herdNextMove = new Dictionary<int, float>();
     private static readonly Dictionary<int, int>     s_herdCount    = new Dictionary<int, int>();
@@ -52,6 +53,30 @@ public class AnimalNode : ResourceNode
 
         if (animator == null)
             animator = GetComponentInChildren<Animator>();
+
+        // The controller is asked for "IsMoving" every frame below. DeerAnimator has
+        // ZERO parameters, so each SetBool logged an error every frame for every
+        // animal (~10k lines/min at 180 animals) and hashed a string per call.
+        // Resolve the capability ONCE here and skip the call when it is absent.
+        hasIsMovingParam = false;
+        if (animator != null && animator.runtimeAnimatorController != null)
+        {
+            var pars = animator.parameters;      // allocs once, in Awake, not per frame
+            for (int i = 0; i < pars.Length; i++)
+            {
+                if (pars[i].name == "IsMoving" && pars[i].type == AnimatorControllerParameterType.Bool)
+                { hasIsMovingParam = true; break; }
+            }
+            if (!hasIsMovingParam)
+            {
+                // One warning per CONTROLLER, not per animal: 190 deer sharing
+                // DeerAnimator used to emit ~190 identical lines on every spawn.
+                string ctrl = animator.runtimeAnimatorController.name;
+                if (s_warnedControllers.Add(ctrl))
+                    Debug.LogWarning($"[AnimalNode] Animator '{ctrl}' has no bool 'IsMoving' parameter " +
+                                     "— walk animation disabled for this animal type.", this);
+            }
+        }
     }
 
     private void Update()
@@ -111,7 +136,7 @@ public class AnimalNode : ResourceNode
         float distToTarget = Vector3.Distance(transform.position, wanderTarget);
         bool isMoving = distToTarget > 0.05f;
 
-        if (animator != null)
+        if (animator != null && hasIsMovingParam)
             animator.SetBool("IsMoving", isMoving);
 
         if (isMoving)
@@ -133,7 +158,7 @@ public class AnimalNode : ResourceNode
     {
         stopped = true;
         wanderTarget = transform.position;
-        if (animator != null)
+        if (animator != null && hasIsMovingParam)
             animator.SetBool("IsMoving", false);
     }
 

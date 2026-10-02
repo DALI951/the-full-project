@@ -19,6 +19,16 @@ public class SpawnAreaManager : MonoBehaviour
     [Tooltip("Number of spawn points distributed around the perimeter.")]
     [SerializeField] private int     spawnPointCount = 10;
 
+    [Header("Base Placement")]
+    [Tooltip("How far INSIDE the map edge each spawn point sits. Bases used to sit " +
+             "exactly on the boundary, which clipped half of every starter ring of " +
+             "resources and starved bases on the edge side. Keep this at least as " +
+             "large as ResourceSpawner.startMaxRadius.")]
+    [SerializeField] private float   spawnInset = 36f;
+
+    [Tooltip("If the spawn ring radius would fall outside the map, clamp it to 45% of the half size.")]
+    [SerializeField, Range(0.1f, 0.95f)] private float minRadiusFraction = 0.45f;
+
     [Header("Marker Visuals")]
     [Tooltip("Prefab to instantiate at each spawn point (optional — can be empty).")]
     [SerializeField] private GameObject spawnMarkerPrefab;
@@ -47,27 +57,31 @@ public class SpawnAreaManager : MonoBehaviour
     // ─── Spawn Point Generation ───────────────────────────────────────────
 
     /// <summary>
-    /// Distributes N points evenly along the perimeter of the square.
-    /// Perimeter order: bottom edge → right edge → top edge → left edge.
+    /// Distributes N points evenly by ANGLE on a circle that is inset from the map
+    /// edge. Even-by-angle matters: the old perimeter walk put "opposite" players
+    /// ~159 units apart on the SAME edge instead of the far corner, and edge bases
+    /// lost half their starter ring to clamping.
     /// </summary>
     private void GenerateSpawnPoints()
     {
-        spawnPositions = new Vector3[spawnPointCount];
-        float perimeter = areaHalfSize * 8f; // 4 sides × 2*halfSize each
-        float step      = perimeter / spawnPointCount;
+        int n = Mathf.Max(1, spawnPointCount);
+        spawnPositions = new Vector3[n];
 
-        for (int i = 0; i < spawnPointCount; i++)
+        float radius = Mathf.Max(areaHalfSize - Mathf.Max(0f, spawnInset),
+                                 areaHalfSize * minRadiusFraction);
+
+        for (int i = 0; i < n; i++)
         {
-            float dist = i * step;
-            spawnPositions[i] = areaCenter + PerimeterPoint(dist, areaHalfSize);
+            // Offset by half a step so no base sits exactly on the +X axis.
+            float a = ((i + 0.5f) / n) * Mathf.PI * 2f;
+            spawnPositions[i] = areaCenter + new Vector3(Mathf.Cos(a) * radius, 0f, Mathf.Sin(a) * radius);
         }
     }
 
     /// <summary>
-    /// Given a distance along the square perimeter (starting at bottom-left,
-    /// going clockwise), returns the local offset from the centre.
-    /// </summary>
-    private static Vector3 PerimeterPoint(float dist, float half)
+    /// DEAD CODE kept out of the build path: the ring generator above replaced the
+    /// old square-perimeter walk. Retained only as documentation of the old layout.
+    private static Vector3 PerimeterPoint_UNUSED(float dist, float half)
     {
         float side = half * 2f;
 
@@ -144,12 +158,13 @@ public class SpawnAreaManager : MonoBehaviour
         for (int i = 0; i < 4; i++)
             Gizmos.DrawLine(corners[i], corners[(i + 1) % 4]);
 
-        // Draw spawn points
-        float perim = h * 8f;
-        float step  = perim / spawnPointCount;
-        for (int i = 0; i < spawnPointCount; i++)
+        // Draw spawn points (same ring GenerateSpawnPoints uses)
+        int n = Mathf.Max(1, spawnPointCount);
+        float radius = Mathf.Max(h - Mathf.Max(0f, spawnInset), h * minRadiusFraction);
+        for (int i = 0; i < n; i++)
         {
-            Vector3 pt = areaCenter + PerimeterPoint(i * step, h);
+            float a = ((i + 0.5f) / n) * Mathf.PI * 2f;
+            Vector3 pt = c + new Vector3(Mathf.Cos(a) * radius, 0f, Mathf.Sin(a) * radius);
             Gizmos.color = (markerColors != null && markerColors.Length > 0)
                 ? markerColors[i % markerColors.Length] : Color.white;
             Gizmos.DrawSphere(pt, 0.8f);
