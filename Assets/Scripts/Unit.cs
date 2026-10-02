@@ -119,6 +119,20 @@ public class Unit : NetworkBehaviour
 
     protected virtual void Start() { }
 
+    /// <summary>
+    /// Units normally unregister in Die(), but a unit can also disappear without
+    /// ever reaching Die() - Mirror despawns it when the owning connection drops,
+    /// the scene unloads, or a parent is destroyed. That left dead references in
+    /// UnitSelectionManager.allUnitsList forever, so every drag-selection walked a
+    /// growing list of ghosts. Unregistering here covers all death paths.
+    /// </summary>
+    private void OnDestroy()
+    {
+        UnitSelectionManager.Instance?.Unregister(this);
+        MinimapSystem.Instance?.Untrack(transform);
+        SelectionManager.Instance?.RemoveUnitFromDragSelection(this);
+    }
+
     protected virtual void Update()
     {
         if (isDying) return;
@@ -340,6 +354,10 @@ public class Unit : NetworkBehaviour
     public void SetAttackTarget(Unit t) { _movementOverride = false; attackTarget = t; }
     public void ClearAttackTarget()     { attackTarget = null; }
 
+    // Select() rebuilt a Material[] on every single click. Cached once instead.
+    private Material[] _outlinedMats;
+    private MaterialPropertyBlock _mpb;
+
     public virtual void Select(Color c)
     {
         isSelected = true;
@@ -349,20 +367,23 @@ public class Unit : NetworkBehaviour
             Renderer r = selectionCircle.GetComponent<Renderer>();
             if (r != null)
             {
-                var mpb = new MaterialPropertyBlock();
-                r.GetPropertyBlock(mpb);
+                _mpb ??= new MaterialPropertyBlock();
+                r.GetPropertyBlock(_mpb);
                 Color circleColor = PlayerColorManager.Instance != null
                     ? PlayerColorManager.Instance.GetColor(ownerPlayerId) : c;
-                mpb.SetColor("_Color", circleColor);
-                r.SetPropertyBlock(mpb);
+                _mpb.SetColor("_Color", circleColor);
+                r.SetPropertyBlock(_mpb);
             }
         }
-        if (unitRenderer != null && outlineMaterial != null)
+        if (unitRenderer != null && outlineMaterial != null && originalMats != null)
         {
-            var mats = new Material[originalMats.Length + 1];
-            originalMats.CopyTo(mats, 0);
-            mats[mats.Length - 1] = outlineMaterial;
-            unitRenderer.materials = mats;
+            if (_outlinedMats == null || _outlinedMats.Length != originalMats.Length + 1)
+            {
+                _outlinedMats = new Material[originalMats.Length + 1];
+                originalMats.CopyTo(_outlinedMats, 0);
+                _outlinedMats[_outlinedMats.Length - 1] = outlineMaterial;
+            }
+            unitRenderer.materials = _outlinedMats;
         }
     }
 

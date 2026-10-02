@@ -22,6 +22,26 @@ public class LoadingScreen : MonoBehaviour
         if (progressBar != null) progressBar.value = 0f;
     }
 
+    /// <summary>
+    /// MUST clear the static reference when this object dies.
+    /// LoadingScreen lives in the menu scene, but GameUI.Awake() in the game scene
+    /// calls LoadingScreen.Instance?.Hide(). The null-conditional operator '?' tests
+    /// for a REAL CLR null - it does NOT understand Unity's destroyed-object
+    /// "fake null". A destroyed MonoBehaviour is still a live C# wrapper, so '?.'
+    /// happily calls Hide() on it and that throws MissingReferenceException.
+    /// Clearing Instance here makes the reference genuinely null.
+    /// </summary>
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
+    }
+
+    /// <summary>Unity-fake-null safe hide. Always use this from other scripts.</summary>
+    public static void HideIfPresent()
+    {
+        if (Instance != null) Instance.Hide();
+    }
+
     public void Show(string message = "Loading...")
     {
         gameObject.SetActive(true);

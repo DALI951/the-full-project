@@ -28,6 +28,39 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
     private RectTransform minimapRect;
     private Dictionary<Transform, RectTransform> dots = new Dictionary<Transform, RectTransform>();
 
+    // What each dot represents, resolved once at Track time.
+    // LateUpdate used to call GetComponent<ResourceNode>() + GetComponent<Unit>()
+    // on EVERY tracked dot EVERY frame (2 lookups x ~300 dots x 60fps = 36k
+    // component lookups per second). The component reference is now cached
+    // alongside the dot, so the hot loop does zero lookups.
+    private enum DotKind : byte { Resource = 1, Unit = 2, Building = 3 }
+
+    private struct DotEntry
+    {
+        public RectTransform Dot;
+        public DotKind       Kind;
+        public Unit          Unit;      // only meaningful when Kind == Unit
+        public int           OwnerId;   // cached for buildings; units read live off Unit
+    }
+
+    private readonly Dictionary<Transform, DotEntry> dotKinds = new Dictionary<Transform, DotEntry>();
+
+    // Reused buffers - these were allocated fresh every single frame.
+    private readonly List<Transform> staleDots = new List<Transform>();
+    private static readonly Vector3[] viewportCorners =
+    {
+        new Vector3(0f, 0f, 0f), // bottom-left
+        new Vector3(1f, 0f, 0f), // bottom-right
+        new Vector3(1f, 1f, 0f), // top-right
+        new Vector3(0f, 1f, 0f), // top-left
+    };
+
+    // Viewport-rect dirty tracking: the rect is a pure function of the main camera
+    // frustum, so it only needs recomputing when that camera actually changes.
+    private Vector3? _lastViewportCamPos;
+    private Vector3 _lastViewportCamRot;
+    private float   _lastViewportAspect;
+
     private RectTransform   vpContainer;
 
     private void Awake()
@@ -69,6 +102,10 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
         if (unit == null || dots.ContainsKey(unit.transform)) return;
         var dot = CreateDot(unitDotSize);
         dots[unit.transform] = dot;
+        dotKinds[unit.transform] = new DotEntry
+        {
+            Dot = dot, Kind = DotKind.Unit, Unit = unit, OwnerId = unit.OwnerPlayerId
+        };
         SetDotColor(dot, unit.OwnerPlayerId);
     }
 
@@ -77,6 +114,10 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
         if (building == null || dots.ContainsKey(building.transform)) return;
         var dot = CreateDot(buildingDotSize);
         dots[building.transform] = dot;
+        dotKinds[building.transform] = new DotEntry
+        {
+            Dot = dot, Kind = DotKind.Building, Unit = null, OwnerId = building.OwnerPlayerId
+        };
         SetDotColor(dot, building.OwnerPlayerId);
     }
 
@@ -85,6 +126,10 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
         if (node == null || dots.ContainsKey(node.transform) || node.IsEmpty) return;
         var dot = CreateDot(resourceDotSize);
         dots[node.transform] = dot;
+        dotKinds[node.transform] = new DotEntry
+        {
+            Dot = dot, Kind = DotKind.Resource, Unit = null, OwnerId = -1
+        };
         dot.GetComponent<UnityEngine.UI.Image>().color = Color.white;
     }
 
@@ -95,6 +140,7 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
             if (dot != null) Destroy(dot.gameObject);
             dots.Remove(t);
         }
+        if (t != null) dotKinds.Remove(t);
     }
 
     private RectTransform CreateDot(float size)
@@ -148,42 +194,50 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
     {
         if (minimapRect == null) return;
 
-        List<Transform> toRemove = new List<Transform>();
+        staleDots.Clear();
         foreach (var kvp in dots)
         {
             var t = kvp.Key;
             var dot = kvp.Value;
-            if (t == null || dot == null) { toRemove.Add(t); continue; }
+            if (t == null || dot == null) { staleDots.Add(t); continue; }
 
-            if (!t.gameObject.activeInHierarchy) 
-            { 
-                dot.gameObject.SetActive(false); 
-                continue; 
+            if (!t.gameObject.activeInHierarchy)
+            {
+                dot.gameObject.SetActive(false);
+                continue;
             }
 
-            ResourceNode res = t.GetComponent<ResourceNode>();
-            if (res != null)
+            // Zero GetComponent calls here: kind + owner were resolved at Track time.
+            if (dotKinds.TryGetValue(t, out DotEntry entry))
             {
-                bool explored = FogOfWar.Instance == null || 
-                                FogOfWar.Instance.IsExplored(t.position);
-                if (!explored)
+                if (entry.Kind == DotKind.Resource)
                 {
-                    dot.gameObject.SetActive(false);
-                    continue;
-                }
-            }
-            Unit unitDot = t.GetComponent<Unit>();
-            if (unitDot != null && unitDot.OwnerPlayerId != PlayerColorManager.LocalPlayerIndex)
-            {
-                bool isAlly = NetworkedPlayer.LocalInstance != null
-                    && NetworkedPlayer.SameTeam(PlayerColorManager.LocalPlayerIndex, unitDot.OwnerPlayerId);
-                if (!isAlly)
-                {
-                    bool vis = FogOfWar.Instance == null || FogOfWar.Instance.IsVisible(t.position);
-                    if (!vis)
+                    bool explored = FogOfWar.Instance == null ||
+                                    FogOfWar.Instance.IsExplored(t.position);
+                    if (!explored)
                     {
                         dot.gameObject.SetActive(false);
                         continue;
+                    }
+                }
+                else if (entry.Kind == DotKind.Unit)
+                {
+                    Unit unit = entry.Unit;
+                    int owner = unit != null ? unit.OwnerPlayerId : entry.OwnerId;
+                    if (owner != PlayerColorManager.LocalPlayerIndex)
+                    {
+                        bool isAlly = NetworkedPlayer.LocalInstance != null
+                            && NetworkedPlayer.SameTeam(PlayerColorManager.LocalPlayerIndex, owner);
+                        if (!isAlly)
+                        {
+                            bool vis = FogOfWar.Instance == null ||
+                                       FogOfWar.Instance.IsVisible(t.position);
+                            if (!vis)
+                            {
+                                dot.gameObject.SetActive(false);
+                                continue;
+                            }
+                        }
                     }
                 }
             }
@@ -191,7 +245,7 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
             dot.gameObject.SetActive(true);
             dot.anchoredPosition = WorldToMinimapLocal(t.position);
         }
-        foreach (var t in toRemove) Untrack(t);
+        for (int i = 0; i < staleDots.Count; i++) Untrack(staleDots[i]);
 
         UpdateViewportRect();
     }
@@ -242,20 +296,27 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
     {
         if (mainCamera == null || vpContainer == null) return;
 
+        // The viewport rectangle is derived purely from the MAIN camera frustum, so it
+        // can only change when that camera moves. This used to run 4 physics raycasts
+        // EVERY frame, including the vast majority of frames where the camera is parked
+        // and the result is bit-for-bit identical. Skip the work until it can differ.
+        Transform camT = mainCamera.transform;
+        if (_lastViewportCamPos.HasValue && _lastViewportCamPos == camT.position &&
+            _lastViewportCamRot == camT.eulerAngles && _lastViewportAspect == mainCamera.aspect)
+            return;
+
+        _lastViewportCamPos    = camT.position;
+        _lastViewportCamRot    = camT.eulerAngles;
+        _lastViewportAspect    = mainCamera.aspect;
+
         float halfSize = MapBoundary.Instance != null ? MapBoundary.Instance.HalfSize : 500f;
 
-        Vector3[] vpPoints =
-        {
-            new Vector3(0, 0, 0),  // bottom-left
-            new Vector3(1, 0, 0),  // bottom-right
-            new Vector3(1, 1, 0),  // top-right
-            new Vector3(0, 1, 0),  // top-left
-        };
-
         // REPLACE this block (leave everything else in UpdateViewportRect unchanged)
+        // Uses the cached static `viewportCorners` buffer - this method allocated a
+        // fresh Vector3[4] every frame.
         for (int i = 0; i < 4; i++)
         {
-            Ray     ray      = mainCamera.ViewportPointToRay(vpPoints[i]);
+            Ray ray = mainCamera.ViewportPointToRay(viewportCorners[i]);
             Vector3 worldPos;
 
             // Try to hit actual terrain / ground mesh first
@@ -355,5 +416,17 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
     public void OnPointerClick(PointerEventData eventData)
     {
         // Right-click handled in OnPointerDown — stub required for IPointerClickHandler interface
+    }
+
+    /// <summary>
+    /// Clears the static Instance when this object dies.
+    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
+    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
+    /// dispatch into this dead object and throw MissingReferenceException the next
+    /// time the scene reloads. Clearing the field makes it a true null.
+    /// </summary>
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
     }
 }

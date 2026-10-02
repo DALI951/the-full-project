@@ -41,6 +41,35 @@ public class RTSNetworkManager : NetworkManager
         onlineScene = "";
     }
 
+    /// <summary>
+    /// Guards against a double StartHost/StartClient. Mirror's StartHost is not
+    /// idempotent: a second call makes the host run player setup twice for the
+    /// SAME connection, which surfaces as "AddPlayer: player object already
+    /// exists" / "There is already a player for this connection".
+    /// Mirror's NetworkManager.StartHost/StartClient are non-virtual, so these use
+    /// `new` to hide them. Every MiniAge caller goes through RTSNetworkManager.Instance,
+    /// so the guard applies to all of them (MainMenuUI, GameModeManager, ...).
+    /// </summary>
+    public new void StartHost()
+    {
+        if (NetworkServer.active || NetworkClient.active)
+        {
+            Debug.LogWarning("[RTSNetworkManager] StartHost ignored - already hosting or connected.");
+            return;
+        }
+        base.StartHost();
+    }
+
+    public new void StartClient()
+    {
+        if (NetworkServer.active || NetworkClient.active)
+        {
+            Debug.LogWarning("[RTSNetworkManager] StartClient ignored - already hosting or connected.");
+            return;
+        }
+        base.StartClient();
+    }
+
     public override void OnStartHost()
     {
         base.OnStartHost();
@@ -348,7 +377,7 @@ public class RTSNetworkManager : NetworkManager
             }
             foreach (var conn in NetworkServer.connections.Values)
                 if (conn?.identity?.TryGetComponent(out LobbyPlayer lp) ?? false)
-                    { lp.RpcShowColorWarning(); break; }
+                    lp.RpcShowColorWarning();
             return;
         }
 
@@ -524,10 +553,7 @@ public class RTSNetworkManager : NetworkManager
         {
             if (conn?.identity == null) continue;
             if (conn.identity.TryGetComponent(out LobbyPlayer lp))
-            {
                 lp.RpcSyncBotList(json);
-                break;
-            }
         }
     }
 

@@ -66,7 +66,7 @@ public class BuildingInfoUI : MonoBehaviour
                     wasSpawnPointSet = true;
                     statusClearTimer = 1.5f;
                     if (spawnPointStatusText != null)
-                        spawnPointStatusText.text = "Spawn point set \u2713";
+                        spawnPointStatusText.text = "Spawn point set";
                 }
             }
         }
@@ -97,7 +97,7 @@ public class BuildingInfoUI : MonoBehaviour
             if (settingSpawnPoint)
                 spawnPointStatusText.text = "Click on the map to set spawn point...";
             else if (wasSpawnPointSet)
-                spawnPointStatusText.text = "Spawn point set \u2713";
+                spawnPointStatusText.text = "Spawn point set";
             else
                 spawnPointStatusText.text = "Click to set spawn point";
         }
@@ -219,5 +219,17 @@ public class BuildingInfoUI : MonoBehaviour
         trackedSite.Demolish();
         trackedSite = null;
         Hide();
+    }
+
+    /// <summary>
+    /// Clears the static Instance when this object dies.
+    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
+    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
+    /// dispatch into this dead object and throw MissingReferenceException the next
+    /// time the scene reloads. Clearing the field makes it a true null.
+    /// </summary>
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
     }
 }

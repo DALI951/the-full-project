@@ -144,7 +144,22 @@ public class Building : NetworkBehaviour
         AllBuildings.Remove(this);
         trainingQueue.Clear();
         isTraining        = false;
+
+        // REFUND the population this building had reserved for units that never
+        // got produced. Zeroing the counter without giving the slots back
+        // permanently leaked them: a barracks destroyed mid-training cost the
+        // player that many population forever, silently capping their growth.
+        int refund = pendingPopulation;
         pendingPopulation = 0;
+        if (refund > 0)
+        {
+            NetworkedPlayer owner = NetworkedPlayer.Get(ownerPlayerId);
+            if (owner != null) owner.RemovePopulation(refund);
+            else if (ownerPlayerId == PlayerColorManager.LocalPlayerIndex)
+                ResourceManager.Instance?.RemovePopulation(refund);
+            else
+                EnemyAI.Instance?.RemovePopulation(refund);
+        }
     }
 
     private void OnMouseDown()

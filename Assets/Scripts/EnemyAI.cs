@@ -118,7 +118,12 @@ public class EnemyAI : MonoBehaviour
     {
         int militaryCount = CountEnemyMilitary();
         int villagerCount = CountEnemyVillagers();
-        float resourceRatio = (food + wood + gold) / Mathf.Max(1, startFood + startWood + startGold);
+        // int / int performed INTEGER DIVISION, so this was always 0 or 1 (never 0.0-1.0).
+        // The "< 0.3f" poor-economy check therefore only ever fired at exactly 0,
+        // i.e. when the AI was completely broke - never when resources dipped.
+        float totalNow = food + wood + gold;
+        float totalStart = Mathf.Max(1f, startFood + startWood + startGold);
+        float resourceRatio = totalNow / totalStart;
 
         if (currentPopulation >= maxPopulation * 0.9f)
             currentStrategy = AIStrategy.Desperate;
@@ -205,7 +210,12 @@ public class EnemyAI : MonoBehaviour
 
     private void TryBuildBarracks()
     {
-        if (barracksCost <= wood + 50)
+        // TryPlaceBuilding() spends (cost, cost, cost/2) for food/wood/gold and
+        // bails out safely if it cannot pay, so this gate is only a cheap
+        // fast-path. The old `barracksCost <= wood + 50` added a magic 50 to the
+        // wood total and never checked food or gold at all, letting the AI start
+        // a build it had no resources for.
+        if (wood >= barracksCost)
             TryPlaceBuilding(barracksPrefab);
     }
 
@@ -728,5 +738,17 @@ public class EnemyAI : MonoBehaviour
         if (MapBoundary.Instance != null)
             return MapBoundary.Instance.Clamp(pos);
         return pos;
+    }
+
+    /// <summary>
+    /// Clears the static Instance when this object dies.
+    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
+    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
+    /// dispatch into this dead object and throw MissingReferenceException the next
+    /// time the scene reloads. Clearing the field makes it a true null.
+    /// </summary>
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
     }
 }

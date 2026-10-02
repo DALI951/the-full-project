@@ -193,7 +193,6 @@ public class Villager : Unit
         if (targetNode == node && gatherSlot < 0)
         {
             gatherSlot = slot;
-            Debug.Log($"[{name}] Promoted to slot {slot} at {node.name}");
             if (!node.RequiresKill || node.IsKilled)
                 MoveToGatherSlot();
         }
@@ -287,7 +286,11 @@ public class Villager : Unit
                 {
                     targetNode.ReleaseSlot(this);
                     int newSlot = targetNode.ReserveSlot(this);
-                    gatherSlot = Mathf.Max(0, newSlot);
+                    // Never coerce -1 into slot 0: -1 means "node is full, nothing
+                    // was reserved for us". Clamping it to 0 sent this villager to
+                    // another villager's slot AND leaked the real slot, because
+                    // ReleaseSlot could no longer find us.
+                    if (newSlot >= 0) gatherSlot = newSlot;
                 }
                 MoveToGatherSlot();
             }
@@ -645,6 +648,17 @@ public class Villager : Unit
 
     public void AssignToResourceBuilding(ResourceBuilding b)
     {
+        // The building can be destroyed between the moment the player picks it and
+        // the moment this assignment runs (ResourceBuilding.EnteredBuilding pulls
+        // every villager out on death). Dereferencing b.transform blindly threw a
+        // NullReferenceException on the client.
+        if (b == null)
+        {
+            Debug.LogWarning("[Villager] AssignToResourceBuilding called with a missing building.");
+            EnterState(VState.Idle);
+            return;
+        }
+
         ReleaseCurrentNode();
         ClearWaypoints();
         targetSite = null;

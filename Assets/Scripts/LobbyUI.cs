@@ -16,7 +16,7 @@ using Mirror;
 ///   TeamUpBtn      (Button)
 ///   TeamDownBtn    (Button)
 ///   ReadyButton    (Button)      — toggles ready state (local only)
-///   ReadyText      (TMP_Text)    — "✓ Ready" / "Not Ready"
+///   ReadyText      (TMP_Text)    — "Ready" / "Not Ready"
 ///   KickButton     (Button)      — host only, non-self
 ///
 /// When a player is ready their controls lock (color + team disabled)
@@ -511,7 +511,7 @@ public class LobbyUI : MonoBehaviour
         var readyText = row.transform.Find("ReadyText")?.GetComponent<TMP_Text>();
         if (readyText)
         {
-            readyText.text  = p.isReady ? "✓ Ready" : "Not Ready";
+            readyText.text  = p.isReady ? "Ready" : "Not Ready";
             readyText.color = p.isReady ? Color.green : Color.gray;
         }
 
@@ -597,7 +597,7 @@ public class LobbyUI : MonoBehaviour
         var readyText = row.transform.Find("ReadyText")?.GetComponent<TMP_Text>();
         if (readyText)
         {
-            readyText.text  = bot.isReady ? "✓ Ready" : "Not Ready";
+            readyText.text  = bot.isReady ? "Ready" : "Not Ready";
             readyText.color = bot.isReady ? Color.green : Color.gray;
         }
 
@@ -615,7 +615,7 @@ public class LobbyUI : MonoBehaviour
                     btnComponent.onClick.AddListener(() =>
                     {
                         bool newReady = !bot.isReady;
-                        readyText.text  = newReady ? "✓ Ready" : "Not Ready";
+                        readyText.text  = newReady ? "Ready" : "Not Ready";
                         readyText.color = newReady ? Color.green : Color.gray;
                         RTSNetworkManager.Instance?.SetBotReady(s, newReady);
                     });
@@ -1189,5 +1189,17 @@ public class LobbyUI : MonoBehaviour
             case 3: return team4Color;
             default: return Color.white;
         }
+    }
+
+    /// <summary>
+    /// Clears the static Instance when this object dies.
+    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
+    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
+    /// dispatch into this dead object and throw MissingReferenceException the next
+    /// time the scene reloads. Clearing the field makes it a true null.
+    /// </summary>
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
     }
 }

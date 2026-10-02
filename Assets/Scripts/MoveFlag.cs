@@ -58,4 +58,16 @@ public class MoveFlag : MonoBehaviour
             if (f != null) Destroy(f);
         activeFlags.Clear();
     }
+
+    /// <summary>
+    /// Clears the static Instance when this object dies.
+    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
+    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
+    /// dispatch into this dead object and throw MissingReferenceException the next
+    /// time the scene reloads. Clearing the field makes it a true null.
+    /// </summary>
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
+    }
 }

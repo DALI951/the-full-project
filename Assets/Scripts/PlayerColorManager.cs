@@ -40,4 +40,16 @@ public class PlayerColorManager : MonoBehaviour
     {
         return playerColors[Mathf.Clamp(playerIndex, 0, playerColors.Length - 1)];
     }
+
+    /// <summary>
+    /// Clears the static Instance when this object dies.
+    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
+    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
+    /// dispatch into this dead object and throw MissingReferenceException the next
+    /// time the scene reloads. Clearing the field makes it a true null.
+    /// </summary>
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
+    }
 }

@@ -5,6 +5,7 @@ using System.Net.NetworkInformation;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using Mirror;
 
 /// <summary>
 /// MainMenuUI v2 — full redesign.
@@ -104,6 +105,11 @@ public class MainMenuUI : MonoBehaviour
     {
         if (LANDiscovery.Instance != null)
             LANDiscovery.Instance.OnServersChanged -= RefreshServerList;
+
+        // Clear the static reference. A destroyed MonoBehaviour is NOT a real CLR
+        // null, so a `Instance?.Foo()` call site elsewhere would still dispatch into
+        // this dead object and throw MissingReferenceException on the next scene load.
+        if (Instance == this) Instance = null;
     }
 
     private void Update()
@@ -187,13 +193,23 @@ public class MainMenuUI : MonoBehaviour
 
     // ── Host ─────────────────────────────────────────────────────────
 
-    public void OnStartHost()
+public void OnStartHost()
     {
-        if (RTSNetworkManager.Instance == null)
-        {
-            SetHostStatus("❌ NetworkManager not found in scene!");
-            return;
-        }
+   if (RTSNetworkManager.Instance == null)
+   {
+   SetHostStatus("? NetworkManager not found in scene!");
+   return;
+   }
+
+   // Guard against a double-click or a stale button: Mirror logs
+   // "Server or Client already started." and silently does nothing, which left the
+   // UI stuck on "Starting lobby..." forever.
+   if (NetworkServer.active || NetworkClient.active)
+   {
+   SetHostStatus("Already hosting - use Stop Host first.");
+   if (startHostButton) startHostButton.interactable = false;
+   return;
+   }
 
         int maxPlayers = (maxPlayersDropdown != null) ? maxPlayersDropdown.value + 1 : 2;
         RTSNetworkManager.Instance.maxConnections  = maxPlayers;

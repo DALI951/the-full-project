@@ -1,5 +1,6 @@
 using UnityEngine;
 using Mirror;
+using System.Collections.Generic;
 
 [DefaultExecutionOrder(-100)]
 public class FogOfWar : MonoBehaviour
@@ -17,12 +18,38 @@ public class FogOfWar : MonoBehaviour
     [SerializeField] private Color visibleColor    = new Color(0f, 0f, 0f, 0f);
 
     // Runtime
+    // Cells currently in state 2 ("visible"). Tracking them in a list means
+    // Update() touches only the handful of cells the fog-revealers actually
+    // cover, instead of walking all 256x256 = 65,536 cells every single frame.
+    private readonly List<int> visibleCells = new List<int>();
+
     private Texture2D fogTexture;
     private byte[]    cellState;
     private Color[]   pixels;
-    private bool      dirty = true;
+
+    // Set to 1 by Reveal() for the current frame. Update() only demotes a cell
+    // to "explored" if nothing re-revealed it, so a cell continuously covered by
+    // a FogRevealer stops flipping visible->explored->visible 60 times a second.
+    // Without this the fog texture was re-uploaded every single frame forever.
+    private byte[]    freshThisFrame;
+
+    // Dirty rectangle: set only when a pixel's colour actually changes, so
+    // LateUpdate can skip the texture upload entirely on quiet frames.
+    private int dirtyMinX = int.MaxValue, dirtyMaxX = int.MinValue;
+    private int dirtyMinY = int.MaxValue, dirtyMaxY = int.MinValue;
+
     private const int FOG_BORDER = 32;
     private Material  fogMaterial;
+
+    private bool HasDirtyRect => dirtyMaxX >= dirtyMinX && dirtyMaxY >= dirtyMinY;
+
+    private void MarkDirty(int px, int py)
+    {
+        if (px < dirtyMinX) dirtyMinX = px;
+        if (px > dirtyMaxX) dirtyMaxX = px;
+        if (py < dirtyMinY) dirtyMinY = py;
+        if (py > dirtyMaxY) dirtyMaxY = py;
+    }
 
     private void Awake()
     {
@@ -48,6 +75,7 @@ public class FogOfWar : MonoBehaviour
         fogTexture.filterMode = FilterMode.Bilinear;
         fogTexture.wrapMode   = TextureWrapMode.Clamp;
         cellState = new byte[resolution * resolution];
+        freshThisFrame = new byte[resolution * resolution];
         pixels    = new Color[resolution * resolution];
 
         for (int i = 0; i < pixels.Length; i++)
@@ -119,13 +147,23 @@ public class FogOfWar : MonoBehaviour
 
     private void Update()
     {
-        for (int i = 0; i < cellState.Length; i++)
+        // Demote only the cells that are currently "visible" instead of scanning
+        // the entire cellState array (65,536 entries) every frame.
+        if (visibleCells.Count == 0) return;
+
+        for (int i = visibleCells.Count - 1; i >= 0; i--)
         {
-            if (cellState[i] == 2)
+            int idx = visibleCells[i];
+            // Nobody re-revealed this cell since the last Update -> it is now out
+            // of sight, so drop it back to "explored" and repaint that pixel.
+            if (cellState[idx] == 2 && freshThisFrame[idx] == 0)
             {
-                cellState[i] = 1;
-                dirty = true;
+                cellState[idx] = 1;
+                pixels[idx]    = exploredColor;
+                MarkDirty(idx % resolution, idx / resolution);
             }
+            freshThisFrame[idx] = 0;
+            visibleCells.RemoveAt(i);
         }
     }
 
@@ -146,10 +184,15 @@ public class FogOfWar : MonoBehaviour
                 if (px < 0 || px >= resolution || py < 0 || py >= resolution) continue;
 
                 int idx = py * resolution + px;
+                freshThisFrame[idx] = 1;
                 if (cellState[idx] < 2)
                 {
                     cellState[idx] = 2;
-                    dirty = true;
+                    visibleCells.Add(idx);
+                    // Only repaint on an actual state change; re-revealing a cell
+                    // that is already visible must not queue another upload.
+                    pixels[idx] = visibleColor;
+                    MarkDirty(px, py);
                 }
             }
         }
@@ -157,21 +200,14 @@ public class FogOfWar : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (!dirty) return;
-        dirty = false;
-
-        for (int i = 0; i < cellState.Length; i++)
-        {
-            switch (cellState[i])
-            {
-                case 0: pixels[i] = unexploredColor; break;
-                case 1: pixels[i] = exploredColor;   break;
-                case 2: pixels[i] = visibleColor;    break;
-            }
-        }
+        // Nothing actually changed this frame -> skip the texture upload entirely.
+        if (!HasDirtyRect) return;
 
         fogTexture.SetPixels(pixels);
-        fogTexture.Apply(false);
+        fogTexture.Apply(false, false);
+
+        dirtyMinX = int.MaxValue; dirtyMaxX = int.MinValue;
+        dirtyMinY = int.MaxValue; dirtyMaxY = int.MinValue;
     }
 
     private int WorldToCell(float worldCoord)
@@ -196,5 +232,17 @@ public class FogOfWar : MonoBehaviour
         int cy  = WorldToCell(worldPos.z);
         int idx = cy * resolution + cx;
         return cellState[idx] >= 1;
+    }
+
+    /// <summary>
+    /// Clears the static Instance when this object dies.
+    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
+    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
+    /// dispatch into this dead object and throw MissingReferenceException the next
+    /// time the scene reloads. Clearing the field makes it a true null.
+    /// </summary>
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
     }
 }

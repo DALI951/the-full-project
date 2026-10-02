@@ -195,7 +195,8 @@ public class ResourceNode : MonoBehaviour
 
     protected virtual void OnKilled()
     {
-        Debug.Log($"[{name}] Killed — ready to gather.");
+        // Was an unconditional Debug.Log: with hunting villagers killing 100+
+        // animals a match this filled the Console and cost real time to write.
         if (this is AnimalNode a) a.StopMoving();
     }
 

@@ -32,8 +32,6 @@ public class SelectionManager : MonoBehaviour
         Instance = this;
     }
 
-    private Collider[] overlapCache = new Collider[128];
-
     private void Update()
     {
         UpdateCursor();
@@ -91,10 +89,16 @@ public class SelectionManager : MonoBehaviour
 
         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
 
+        // One raycast for all "Everything" hits.
+        // This used to be FOUR separate Physics.Raycast(ray, ..., Mathf.Infinity) calls
+        // with identical arguments, so all four returned the exact same collider - the
+        // physics query ran 4x per right-click for zero extra information.
+        Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity);
+
         // ── Enemy unit? → attack ──────────────────────────────────────
-        if (Physics.Raycast(ray, out RaycastHit unitHit, Mathf.Infinity))
+        if (hit.collider != null)
         {
-            Unit target = unitHit.collider.GetComponentInParent<Unit>();
+            Unit target = hit.collider.GetComponentInParent<Unit>();
             if (target != null && !selectedUnits.Contains(target))
             {
                 bool issued = false;
@@ -117,9 +121,9 @@ public class SelectionManager : MonoBehaviour
         }
 
         // ── Enemy building? → attack ──────────────────────────────────
-        if (Physics.Raycast(ray, out RaycastHit bldHit, Mathf.Infinity))
+        if (hit.collider != null)
         {
-            Building bldTarget = bldHit.collider.GetComponentInParent<Building>();
+            Building bldTarget = hit.collider.GetComponentInParent<Building>();
             if (bldTarget != null && bldTarget.OwnerPlayerId != PlayerColorManager.LocalPlayerIndex)
             {
                 bool isAlly = NetworkedPlayer.LocalInstance != null
@@ -139,9 +143,9 @@ public class SelectionManager : MonoBehaviour
         }
 
         // ── Construction site? → assign villagers to build ───────────────
-        if (Physics.Raycast(ray, out RaycastHit siteHit, Mathf.Infinity))
+        if (hit.collider != null)
         {
-            ConstructionSite site = siteHit.collider.GetComponentInParent<ConstructionSite>();
+            ConstructionSite site = hit.collider.GetComponentInParent<ConstructionSite>();
             if (site != null && !site.IsComplete)
             {
                 if (NetworkedPlayer.LocalInstance != null)
@@ -165,9 +169,9 @@ public class SelectionManager : MonoBehaviour
         }
 
         // ── Resource Building? → send selected villagers to work ─────────
-        if (Physics.Raycast(ray, out RaycastHit rbHit, Mathf.Infinity))
+        if (hit.collider != null)
         {
-            ResourceBuilding rb = rbHit.collider.GetComponentInParent<ResourceBuilding>();
+            ResourceBuilding rb = hit.collider.GetComponentInParent<ResourceBuilding>();
             if (rb != null)
             {
                 bool assigned = false;
@@ -181,6 +185,8 @@ public class SelectionManager : MonoBehaviour
         }
 
         // ── Resource node? → gather (Villagers) or move (military) ────
+        // Needs its own query: resourceLayer is a different layer mask, so this can
+        // hit a node that sits behind geometry the mask above rejects.
         if (Physics.Raycast(ray, out RaycastHit resHit, Mathf.Infinity, resourceLayer))
         {
             ResourceNode node = resHit.collider.GetComponentInParent<ResourceNode>();
@@ -245,20 +251,40 @@ public class SelectionManager : MonoBehaviour
         }
     }
 
+    // ── Shared UI raycast cache ─────────────────────────────────────────────
+    // IsPointerOverVisiblePanel() is called from Update() every frame (and up to
+    // twice more per frame from UnitSelectionBox), while both hit-test helpers
+    // used to build a fresh PointerEventData + List<RaycastResult> on every call.
+    // That is 2 managed allocations per frame, forever.
+    private static PointerEventData   s_uiPointer;
+    private static List<RaycastResult> s_uiRaycastResults = new List<RaycastResult>(32);
+
+    private static bool RaycastUI()
+    {
+        EventSystem es = EventSystem.current;
+        if (es == null) return false;
+
+        if (s_uiPointer == null) s_uiPointer = new PointerEventData(es);
+        s_uiPointer.Reset();
+        s_uiPointer.position = Input.mousePosition;
+
+        s_uiRaycastResults.Clear();
+        es.RaycastAll(s_uiPointer, s_uiRaycastResults);
+        return true;
+    }
+
     public static bool IsPointerOverInteractiveUI()
     {
-        if (EventSystem.current == null) return false;
-        var pointerData = new PointerEventData(EventSystem.current);
-        pointerData.position = Input.mousePosition;
-        var results = new System.Collections.Generic.List<RaycastResult>();
-        EventSystem.current.RaycastAll(pointerData, results);
+        if (!RaycastUI()) return false;
 
-        foreach (var r in results)
+        for (int i = 0; i < s_uiRaycastResults.Count; i++)
         {
+            RaycastResult r = s_uiRaycastResults[i];
+            if (r.gameObject == null) continue;
             string name = r.gameObject.name.ToLower();
             if (name.Contains("viewport")) continue;
             if (name.Contains("rawimage") && !name.Contains("button")) continue;
-            if (name.Contains("tooltip")) continue; 
+            if (name.Contains("tooltip")) continue;
             if (name.Contains("panel") && !name.Contains("button")) continue;
 
             if (r.gameObject.GetComponent<Button>() != null) return true;
@@ -268,6 +294,11 @@ public class SelectionManager : MonoBehaviour
         }
         return false;
     }
+
+    // Shared comparer - the lambda form allocated a new Comparison delegate on
+    // every sort.
+    private static int CompareHitsByDistance(RaycastHit a, RaycastHit b)
+        => a.distance.CompareTo(b.distance);
 
     private bool TryGetGroundPoint(out Vector3 point)
     {
@@ -291,10 +322,9 @@ public class SelectionManager : MonoBehaviour
 
         // Fallback: raycast everything, skip units/buildings/resources
         RaycastHit[] all = Physics.RaycastAll(ray, Mathf.Infinity);
-        System.Array.Sort(all, (a, b) => a.distance.CompareTo(b.distance));
-        int hitCount = Mathf.Min(all.Length, overlapCache.Length);
+        System.Array.Sort(all, CompareHitsByDistance);
 
-        for (int i = 0; i < hitCount; i++)
+        for (int i = 0; i < all.Length; i++)
         {
             var h = all[i];
             if (h.collider.GetComponentInParent<Unit>() != null) continue;
@@ -553,14 +583,11 @@ public class SelectionManager : MonoBehaviour
         => rt != null && s_blockingPanels.Contains(rt);
     public static bool IsPointerOverVisiblePanel()
     {
-        if (EventSystem.current == null) return false;
+        if (!RaycastUI()) return false;
 
-        var pointerData = new PointerEventData(EventSystem.current) { position = Input.mousePosition };
-        var results     = new List<RaycastResult>();
-        EventSystem.current.RaycastAll(pointerData, results);
-
-        foreach (var r in results)
+        for (int i = 0; i < s_uiRaycastResults.Count; i++)
         {
+            RaycastResult r = s_uiRaycastResults[i];
             if (r.gameObject == null) continue;
 
             // ── skip visually invisible elements ────────────────────────
@@ -614,4 +641,16 @@ public class SelectionManager : MonoBehaviour
     }
     public List<Unit> SelectedUnits    => selectedUnits;
     public Building   SelectedBuilding => selectedBuilding;
+
+    /// <summary>
+    /// Clears the static Instance when this object dies.
+    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
+    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
+    /// dispatch into this dead object and throw MissingReferenceException the next
+    /// time the scene reloads. Clearing the field makes it a true null.
+    /// </summary>
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
+    }
 }

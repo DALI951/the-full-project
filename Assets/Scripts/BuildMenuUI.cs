@@ -98,10 +98,10 @@ public class BuildMenuUI : MonoBehaviour
 
         if (Mirror.NetworkClient.active && NetworkedPlayer.LocalInstance != null)
         {
-            NetworkedPlayer.LocalInstance.CmdStartPlacing(
-                entry.buildingPrefab != null ? entry.buildingPrefab.name : "",
-                entry.buildTime,
-                entry.costFood, entry.costWood, entry.costGold);
+            // RpcStartPlacing is a ClientRpc: placement mode is local-only state and
+            // the costs it uses come from the local BuildEntry, never from the server.
+            NetworkedPlayer.LocalInstance.RpcStartPlacing(
+                entry.buildingPrefab != null ? entry.buildingPrefab.name : "");
         }
         else
         {
@@ -163,5 +163,17 @@ public class BuildMenuUI : MonoBehaviour
         for (int i = 0; i < buildButtons.Length; i++)
             if (buildButtons[i] != null)
                 buildButtons[i].gameObject.SetActive(true);
+    }
+
+    /// <summary>
+    /// Clears the static Instance when this object dies.
+    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
+    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
+    /// dispatch into this dead object and throw MissingReferenceException the next
+    /// time the scene reloads. Clearing the field makes it a true null.
+    /// </summary>
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
     }
 }

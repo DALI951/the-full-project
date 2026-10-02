@@ -60,6 +60,11 @@ public class LANDiscovery : MonoBehaviour
     {
         StopAdvertising();
         StopBrowsing();
+
+        // Clear the static reference so `LANDiscovery.Instance?.X()` on a dead
+        // object cannot throw MissingReferenceException (Unity's destroyed objects
+        // are fake-null, not CLR null).
+        if (Instance == this) Instance = null;
     }
 
     // ── Host API ──────────────────────────────────────────────────────

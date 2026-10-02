@@ -4,7 +4,10 @@ using System.Collections;
 
 public class FloatingDamageText : MonoBehaviour
 {
-    [SerializeField] private float floatSpeed = 1.5f;
+    // NOTE: a serialized `floatSpeed` field used to live here but was never read -
+    // `floatCurve` drives the motion. It was removed because Unity warned
+    // CS0414 (assigned but never used); prefabs that still carry the old value
+    // simply drop it on next save, with no behavioural change.
     [SerializeField] private float fadeDuration = 1f;
     [SerializeField] private AnimationCurve floatCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
 

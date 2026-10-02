@@ -30,6 +30,15 @@ public class UnitSelectionBox : MonoBehaviour
     public static UnitSelectionBox Instance { get; private set; }
     public bool JustFinishedDrag { get; private set; }
     private HashSet<Unit> _realtimeDragUnits = new HashSet<Unit>();
+
+    // Scratch sets reused across frames. UpdateRealtimeSelection() runs EVERY
+    // frame while dragging and used to allocate a fresh HashSet<Unit> each time,
+    // then reassigned _realtimeDragUnits to it (so the old one became garbage).
+    private HashSet<Unit> _nextDragUnits = new HashSet<Unit>();
+    private readonly List<Unit>  s_removedBuffer = new List<Unit>(64);
+
+    private static readonly Vector3[] s_cornerBuffer = new Vector3[4];
+
     private void Start()
     {
         Instance = this;
@@ -188,11 +197,11 @@ public class UnitSelectionBox : MonoBehaviour
     private bool IsMouseOverBottomPanel()
     {
         if (bottomBar == null) return false;
-        Vector3[] corners = new Vector3[4];
-        bottomBar.GetWorldCorners(corners);
+        // corners[] was allocated fresh on every call, and this runs 2-3x per frame.
+        bottomBar.GetWorldCorners(s_cornerBuffer);
         // corners[0] = bottom-left, corners[1] = top-left in world space
         // Convert to screen space
-        float panelScreenTop = RectTransformUtility.WorldToScreenPoint(null, corners[1]).y;
+        float panelScreenTop = RectTransformUtility.WorldToScreenPoint(null, s_cornerBuffer[1]).y;
         return Input.mousePosition.y < panelScreenTop;
     }
     private void UpdateRealtimeSelection()
@@ -208,7 +217,7 @@ public class UnitSelectionBox : MonoBehaviour
         var list = UnitSelectionManager.Instance?.allUnitsList;
         if (list == null) return;
 
-        HashSet<Unit> newSet = new HashSet<Unit>();
+        _nextDragUnits.Clear();
         foreach (Unit unit in list)
         {
             if (unit == null || unit.IsInsideBuilding) continue;
@@ -217,19 +226,41 @@ public class UnitSelectionBox : MonoBehaviour
             Vector3 sp = myCam.WorldToScreenPoint(unit.transform.position);
             if (sp.z < 0) continue;
             if (currentRect.Contains(new Vector2(sp.x, sp.y)))
-                newSet.Add(unit);
+                _nextDragUnits.Add(unit);
         }
 
-        foreach (Unit u in newSet)
+        foreach (Unit u in _nextDragUnits)
             if (!_realtimeDragUnits.Contains(u))
                 SelectionManager.Instance?.AddUnitToSelection(u);
 
         if (!shift)
+        {
+            // RemoveAt on the enumerator would throw, so snapshot the keys.
+            s_removedBuffer.Clear();
             foreach (Unit u in _realtimeDragUnits)
-                if (!newSet.Contains(u))
-                    SelectionManager.Instance?.RemoveUnitFromDragSelection(u);
+                if (!_nextDragUnits.Contains(u))
+                    s_removedBuffer.Add(u);
+            for (int i = 0; i < s_removedBuffer.Count; i++)
+                SelectionManager.Instance?.RemoveUnitFromDragSelection(s_removedBuffer[i]);
+        }
 
-        _realtimeDragUnits = newSet;
+        // Swap the two sets instead of allocating a new one.
+        HashSet<Unit> previous = _realtimeDragUnits;
+        _realtimeDragUnits = _nextDragUnits;
+        _nextDragUnits = previous;
+
         SelectionManager.Instance?.RefreshInfoPanelPublic();
+    }
+
+    /// <summary>
+    /// Clears the static Instance when this object dies.
+    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
+    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
+    /// dispatch into this dead object and throw MissingReferenceException the next
+    /// time the scene reloads. Clearing the field makes it a true null.
+    /// </summary>
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
     }
 }

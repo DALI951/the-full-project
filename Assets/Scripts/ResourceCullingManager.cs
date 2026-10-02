@@ -17,6 +17,13 @@ public class ResourceCullingManager : MonoBehaviour
     [SerializeField] private bool logDebugInfo = true;
 
     private readonly List<ResourceNode> resources = new List<ResourceNode>();
+
+    // Renderer arrays cached per node. Previously SetRenderers() called
+    // GetComponentsInChildren<Renderer>(true) TWICE per node EVERY LateUpdate —
+    // with 300 nodes that is 600 array allocations per frame (~36k allocs/sec)
+    // purely to toggle Renderer.enabled. Now it is resolved once per node.
+    private readonly Dictionary<ResourceNode, Renderer[]> renderersByNode = new Dictionary<ResourceNode, Renderer[]>();
+
     private float sqrCullDistance;
     private Transform camTransform;
     private bool initialized = false;
@@ -50,7 +57,8 @@ public class ResourceCullingManager : MonoBehaviour
         }
         else if (mainCamera != null)
         {
-            Debug.LogWarning($"[CullingManager] '{mainCamera.name}' is a minimap! Searching...");
+            if (logDebugInfo)
+                Debug.Log($"[CullingManager] '{mainCamera.name}' is tagged as MainCamera but is the minimap camera; searching for the real one...");
         }
 
         if (Camera.main != null && IsValidMainCamera(Camera.main))
@@ -132,6 +140,9 @@ public class ResourceCullingManager : MonoBehaviour
             ResourceNode node = resources[i];
             if (node == null)
             {
+                // Destroyed node: drop it from BOTH collections, otherwise
+                // renderersByNode keeps a dead key (and its Renderer[]) forever.
+                renderersByNode.Remove(node);
                 resources.RemoveAt(i);
                 continue;
             }
@@ -156,18 +167,26 @@ public class ResourceCullingManager : MonoBehaviour
 
     private void SetRenderers(ResourceNode node, bool visible)
     {
-        if (node.VisualRoot != null && node.VisualRoot != node.gameObject)
+        Renderer[] renderers = GetCachedRenderers(node);
+        if (renderers == null) return;
+        for (int i = 0; i < renderers.Length; i++)
         {
-            var renderers = node.VisualRoot.GetComponentsInChildren<Renderer>(true);
-            foreach (var r in renderers)
-                if (r.enabled != visible) r.enabled = visible;
+            Renderer r = renderers[i];
+            if (r != null && r.enabled != visible) r.enabled = visible;
         }
-        else
-        {
-            var renderers = node.GetComponentsInChildren<Renderer>(true);
-            foreach (var r in renderers)
-                if (r.enabled != visible) r.enabled = visible;
-        }
+    }
+
+    /// <summary>Resolves a node's renderers once, then reuses the array forever.</summary>
+    private Renderer[] GetCachedRenderers(ResourceNode node)
+    {
+        if (node == null) return null;
+        if (renderersByNode.TryGetValue(node, out Renderer[] cached)) return cached;
+
+        Renderer[] found;
+        GameObject root = node.VisualRoot != null ? node.VisualRoot : node.gameObject;
+        found = root.GetComponentsInChildren<Renderer>(true);
+        renderersByNode[node] = found;
+        return found;
     }
 
     public void ForceShowAll()
@@ -188,5 +207,18 @@ public class ResourceCullingManager : MonoBehaviour
     public void Unregister(ResourceNode node)
     {
         resources.Remove(node);
+        if (node != null) renderersByNode.Remove(node);
+    }
+
+    /// <summary>
+    /// Clears the static Instance when this object dies.
+    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
+    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
+    /// dispatch into this dead object and throw MissingReferenceException the next
+    /// time the scene reloads. Clearing the field makes it a true null.
+    /// </summary>
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
     }
 }

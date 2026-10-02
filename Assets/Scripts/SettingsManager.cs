@@ -119,7 +119,8 @@ public class SettingsManager : MonoBehaviour
         {
             if (r.width == w && r.height == h)
             {
-                Screen.SetResolution(r.width, r.height, IsFullscreen, r.refreshRate);
+                FullScreenMode mode = IsFullscreen ? FullScreenMode.FullScreenWindow : FullScreenMode.Windowed;
+                Screen.SetResolution(r.width, r.height, mode, r.refreshRateRatio);
                 return;
             }
         }

@@ -42,4 +42,16 @@ public class ScreenShake : MonoBehaviour
     public void LightShake() => Shake(0.15f, 0.15f);
     public void MediumShake() => Shake(0.3f, 0.3f);
     public void HeavyShake() => Shake(0.5f, 0.5f);
+
+    /// <summary>
+    /// Clears the static Instance when this object dies.
+    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
+    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
+    /// dispatch into this dead object and throw MissingReferenceException the next
+    /// time the scene reloads. Clearing the field makes it a true null.
+    /// </summary>
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
+    }
 }

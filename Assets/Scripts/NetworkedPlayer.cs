@@ -165,23 +165,31 @@ public class NetworkedPlayer : NetworkBehaviour
     [Command]
     public void CmdPlaceBuilding(string prefabName, Vector3 position, Quaternion rotation, float buildTime, int costFood, int costWood, int costGold)
     {
-        if (!TrySpend(costFood, costWood, costGold)) return;
+        // ── SERVER AUTHORITY ──────────────────────────────────────────────
+        // Cost and build time ALWAYS come from the server's own BuildMenuUI
+        // entry. The costFood/costWood/costGold arguments arrive from the
+        // client and are deliberately IGNORED: a modified client could call
+        // this with 0/0/0 and place buildings for free.
+        BuildMenuUI.BuildEntry entry = FindBuildEntry(prefabName);
+        if (entry == null || entry.constructionSitePrefab == null) return;
 
-        GameObject sitePrefab = null;
-        GameObject buildingPrefab = null;
-        if (BuildMenuUI.AllEntries != null)
+        int   costF   = Mathf.Max(0, entry.costFood);
+        int   costW   = Mathf.Max(0, entry.costWood);
+        int   costG   = Mathf.Max(0, entry.costGold);
+        float siteTime = entry.buildTime > 0f ? entry.buildTime : buildTime;
+
+        if (!TrySpend(costF, costW, costG)) return;
+
+        GameObject sitePrefab    = entry.constructionSitePrefab;
+        GameObject buildingPrefab = entry.buildingPrefab;
+
+        // Keep placements inside the map: a client must not build off-world.
+        if (MapBoundary.Instance != null)
         {
-            foreach (BuildMenuUI.BuildEntry entry in BuildMenuUI.AllEntries)
-            {
-                if (entry.buildingPrefab != null && entry.buildingPrefab.name == prefabName)
-                {
-                    sitePrefab = entry.constructionSitePrefab;
-                    buildingPrefab = entry.buildingPrefab;
-                    break;
-                }
-            }
+            float limit = MapBoundary.Instance.CameraLimit;
+            position.x = Mathf.Clamp(position.x, -limit, limit);
+            position.z = Mathf.Clamp(position.z, -limit, limit);
         }
-        if (sitePrefab == null) { AddResources(costFood, costWood, costGold); return; }
 
         if (!UnityEngine.AI.NavMesh.SamplePosition(position, out UnityEngine.AI.NavMeshHit navHit, 10f, UnityEngine.AI.NavMesh.AllAreas))
             position.y = 0f;
@@ -194,22 +202,35 @@ public class NetworkedPlayer : NetworkBehaviour
         ConstructionSite site = siteGO.GetComponent<ConstructionSite>();
         if (site != null)
         {
-            site.Initialize(buildingPrefab, buildTime, costFood, costWood, costGold);
+            site.Initialize(buildingPrefab, siteTime, costF, costW, costG);
             site.SetOwnerOnServer(playerIndex);
         }
 
         TargetSiteCreated(siteGO.GetComponent<NetworkIdentity>()?.netId ?? 0);
     }
 
+    /// <summary>Server-side lookup of a buildable entry by its finished-building prefab name.</summary>
+    private static BuildMenuUI.BuildEntry FindBuildEntry(string prefabName)
+    {
+        BuildMenuUI.BuildEntry[] all = BuildMenuUI.AllEntries;
+        if (all == null || string.IsNullOrEmpty(prefabName)) return null;
+        foreach (BuildMenuUI.BuildEntry entry in all)
+            if (entry != null && entry.buildingPrefab != null && entry.buildingPrefab.name == prefabName)
+                return entry;
+        return null;
+    }
+
     [TargetRpc]
     private void TargetSiteCreated(uint siteNetId)
     {
         if (siteNetId == 0) return;
-        foreach (Unit u in SelectionManager.Instance?.SelectedUnits ?? new List<Unit>())
-        {
-            if (u is Villager v)
+        List<Unit> selected = SelectionManager.Instance != null
+            ? SelectionManager.Instance.SelectedUnits
+            : null;
+        if (selected == null) return;
+        for (int i = 0; i < selected.Count; i++)
+            if (selected[i] is Villager v)
                 CmdAssignBuilder(siteNetId, v.netId);
-        }
     }
 
     [Command]
@@ -232,28 +253,22 @@ public class NetworkedPlayer : NetworkBehaviour
         building.SetSpawnPoint(point);
     }
 
-    [Command]
-    public void CmdStartPlacing(string prefabName, float buildTime, int costFood, int costWood, int costGold)
+    // Entering "placement mode" is purely local UI state — BuildMenuUI.AllEntries
+    // is identical static inspector data on every peer. This used to be a
+    // [Command] + [TargetRpc] pair, which paid a full client -> server -> client
+    // network round-trip just to toggle a local ghost preview.
+    [ClientRpc]
+    public void RpcStartPlacing(string prefabName)
     {
-        TargetStartPlacing(prefabName, buildTime, costFood, costWood, costGold);
-    }
+        BuildMenuUI.BuildEntry entry = FindBuildEntry(prefabName);
+        if (entry == null || entry.buildingPrefab == null || entry.constructionSitePrefab == null) return;
 
-    [TargetRpc]
-    private void TargetStartPlacing(string prefabName, float buildTime, int costFood, int costWood, int costGold)
-    {
-        GameObject prefab = null;
-        GameObject sitePrefab = null;
-        Material ghostMat = null;
-        if (BuildMenuUI.AllEntries != null)
-        {
-            foreach (var entry in BuildMenuUI.AllEntries)
-            {
-                if (entry.buildingPrefab != null && entry.buildingPrefab.name == prefabName)
-                { prefab = entry.buildingPrefab; sitePrefab = entry.constructionSitePrefab; ghostMat = entry.ghostMaterial; break; }
-            }
-        }
-        if (prefab == null || sitePrefab == null) return;
-        BuildingPlacer.Instance?.StartPlacing(prefab, sitePrefab, buildTime, ghostMat, costFood, costWood, costGold);
+        BuildingPlacer.Instance?.StartPlacing(
+            entry.buildingPrefab,
+            entry.constructionSitePrefab,
+            entry.buildTime,
+            entry.ghostMaterial,
+            entry.costFood, entry.costWood, entry.costGold);
     }
 
     [Command]
