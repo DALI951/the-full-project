@@ -3,159 +3,89 @@
 > State of the work for whoever picks this up next (other device, other chat, future you).
 > Rewrite it, don't append. Body may be `Nothing pending.` — the file always exists.
 
-Last updated: 2026-11-09 19:46 · by: Antigravity (DESKTOP-OJME2E2)
+Last updated: 2026-11-09 23:30 · by: Antigravity (DESKTOP-OJME2E2)
 
 ## Current State & Completed Work
 
-### AoE4 Medieval Overhaul & Giant Summoned Unit Scale Fix
+### AoE4 Visual & Architectural Overhaul (High-Detail 3D Models, 17 PBR Materials, Instanced Grass & Post-Processing)
 
-The comprehensive Age of Empires IV overhaul across visuals, mechanics, map generation, combat, tech progression, animations, and HUD styling is 100% complete, integrated, and verified in Unity 2022.3.62f2 Play Mode with **0 compile errors, 0 runtime errors, and 0 warnings**.
+The project has undergone a complete graphical, architectural, and visual overhaul to bring its visual fidelity in line with Age of Empires IV. All 8 building prefabs now feature authored high-polygon 3D `.obj` models (2,000–3,960 triangles each), 17 tangent-space normal-mapped PBR materials, procedural cobblestone courtyard aprons, GPU-instanced swaying meadow grass, and full-screen atmospheric post-processing.
 
----
-
-### Critical Bug Resolution: Giant Summoned Units Fixed
-- **Root Cause Confirmed**:
-  - `AttachMedievalGear()` on `Infantry.cs`, `Villager.cs`, and `Cavalry.cs` previously parented Unity primitives (`PrimitiveType.Cube` and `Cylinder`) to Mixamo skeleton armatures (`mixamorig:RightHand`, `mixamorig:LeftForeArm`).
-  - Mixamo rigs had internal bone scales with `lossyScale = ~75.0`.
-  - When raw 1.0m Unity primitives were attached to these bones, they inherited a 75x scale multiplier, creating a 58.2m grey monolith sword, a 34.3m wide x 26.9m tall neon-cyan heater shield skyscraper, and a 13.5m mallet.
-- **Complete Fix Applied**:
-  - **`Infantry.cs`**: Removed primitive broadsword and shield generation. Re-enabled the authored 3D FBX sword (`sword.gameObject.SetActive(true)` with renderers enabled) and preserved the warrior mesh (`warr_03`).
-  - **`Villager.cs`**: Removed primitive hammer, procedural axe, knife, and shovel generation. Restored the authored 3D gathering tool meshes and set `hammer` to use the authored tool.
-  - **`Cavalry.cs`**: Removed primitive lance and rider cube stacks; cleaned up all attachments so only the clean 3D horse mesh renders.
-  - **Prototype Root Renderers Removed**: Removed leftover prototype root `MeshRenderer` and `MeshFilter` components from `Cavarly.prefab`, `Villager.prefab`, `Builder.prefab`, and `Infantry.prefab` so no orange cylinder or capsule artifact is rendered under units.
-  - **Authored 3D Building Models Restored (`MedievalModelBuilder.cs`, `ProjectAutoFixer.cs`)**:
-    - Removed all `"ArchitecturalProps"`, `"GoldMineVisual"`, and `"WallVisual"` procedural primitive cube stacks from all building prefabs.
-    - Restored authored 3D FBX models (`GoldMine.fbx`, `Wall.fbx`, `HomeSite.fbx`, `Barracks.fbx`, `Farm.fbx`, `LumberMill.fbx`, `Market.fbx`, `Tower.fbx`, and `Deer_rigged.fbx`).
-    - `GoldMine.prefab` (`GoldMine.fbx`) is rotated 180° so the mine portal faces the camera, using `Custom/TwoSidedBuilding` shader with `_Cull = 0` (Two-Sided / Cull Off) so interior cave backfaces are never culled.
-  - **Verified Play Mode Metrics**:
-    - Villager: `0.76W x 1.75H x 0.60D` (exact human scale $1.75\text{ m}$).
-    - Infantry: `0.90W x 1.85H x 0.59D` (exact warrior scale $1.85\text{ m}$).
-    - Cavalry: `0.58W x 2.20H x 2.40D` (exact horse scale $2.20\text{ m}$ height, $2.40\text{ m}$ length).
-  - **Visual Verification**: Captured `C:\Users\Dali\.gemini\antigravity\brain\ebcbb35f-e44d-4ad4-a850-92b76c447506\summoned_units_fixed.png` showing all 3 summoned units at exact human/horse scale standing beside the Town Center and Barracks with zero giant blocks or monoliths.
+Verified in Unity 2022.3.62f2 Play Mode with **0 compile errors, 0 runtime errors, and 0 exceptions**.
 
 ---
 
-### 1. 3D Medieval Modeling & Clean Authored FBX Models (`MedievalModelBuilder.cs`)
-- **Solid Authored Gold Mine (`GoldMine.prefab`)**: Restored `GoldMine.fbx` with two-sided PBR material (`BuildingAtlas.png`), rotated 180° facing the camera with 0 invisible backfaces.
-- **Stone Walls (`Wall.prefab`)**: Restored authored `Wall.fbx`, seamlessly normalized to $2.20\text{ m}$ segment length.
-- **Clean Authored Buildings**: All 8 buildings (`HomeSite`, `Barracks`, `Farm`, `LumberMill`, `Market`, `Tower`, `GoldMine`, `Wall`) use clean authored 3D FBX assets without primitive cube stacks.
+### 1. High-Detail 3D Medieval Models (`Assets/Models/AoE4Buildings/`)
+- **8 Authored `.obj` + `.mtl` Models**:
+  - `AoE4_TownCenter.obj` $\rightarrow$ `Assets/Prefabs/HomeSite.prefab`: Two-story Tudor town center with stone foundations, white plaster, dark timber framing, multi-flue stone chimney, dormer windows, and dark arched portals. (Bounds: 4.80W x 3.50H x 3.97D).
+  - `AoE4_Barracks.obj` $\rightarrow$ `Assets/Prefabs/Barracks.prefab`: Heavy medieval barracks with timber bracing, dormer gables, weapons racks, and overhanging upper floor. (Bounds: 3.80W x 3.12H x 2.80D).
+  - `AoE4_Farm.obj` $\rightarrow$ `Assets/Prefabs/Farm.prefab`: Authentic medieval agricultural site with octagonal timber-framed windmill, four lattice sail blades, field fence, and harvest baskets. (Bounds: 3.18W x 3.27H x 3.20D).
+  - `AoE4_LumberMill.obj` $\rightarrow$ `Assets/Prefabs/LumberMill.prefab`: Open-sided timber processing mill with log piles, cross-cut sawing trestles, overhead crane beam, and wooden roof canopy. (Bounds: 3.20W x 2.26H x 2.15D).
+  - `AoE4_Market.obj` $\rightarrow$ `Assets/Prefabs/Market.prefab`: Open bazaar square with timber vendor stalls, crimson-and-blue fabric striped canopies, and merchant crates. (Bounds: 3.20W x 2.77H x 2.17D).
+  - `AoE4_Watchtower.obj` $\rightarrow$ `Assets/Prefabs/Tower.prefab`: Crenellated stone watchtower with machicolations, corner watch-turrets, arrow loops, crimson hipped roof, and royal blue heraldic banner. (Bounds: 2.00W x 4.00H x 1.27D).
+  - `AoE4_StoneWall.obj` $\rightarrow$ `Assets/Prefabs/Wall.prefab`: Modular crenellated stone curtain wall with battlements, soldier walkway (banquette), and stone buttresses. (Bounds: 2.20W x 2.20H x 0.75D).
+  - `AoE4_GoldMine.obj` $\rightarrow$ `Assets/Prefabs/GoldMine.prefab`: Solid rocky outcrop with carved quarry face, exposed sparkling metallic gold ore veins, pickaxes, and timber mine shoring. (Bounds: 1.96W x 1.40H x 2.20D).
 
 ---
 
-### 2. Opaque PBR Materials & Ground-Level Fog (`MaterialAndLightingFixer.cs`, `FogOfWar.cs`)
-- **PBR Standard Shading**: Converted all terrain and structure materials to opaque Standard PBR shaders with calibrated smoothness (0.1–0.35) and metallic parameters, eliminating unnatural transparency or specular blowout.
-- **Ground-Level Fog of War**: Positioned fog plane to ground level ($y = 1.06$), eliminating skybox clipping and camera occlusion.
-- **Radial Unshroud**: Initial base reveal diameter configured to $22.0\text{ m}$ to provide clear line-of-sight over immediate resource clusters while keeping undiscovered territory enveloped in dark shroud.
+### 2. 17 PBR Normal-Mapped Materials (`Assets/Materials/AoE4PBR/`)
+Created by `PBRAndEnvironmentUpgrader.UpgradeMaterialsAndTerrain()`, using 12 tileable albedo textures and tangent-space normal maps (`Assets/Textures/PBR/`):
+- `StoneWall.mat`: Chiseled ashlar stone blocks with high normal relief (`_BumpScale = 1.1`).
+- `TimberFrame.mat`: Dark aged oak timber beams with wood grain normal mapping.
+- `TudorPlaster.mat`: Off-white hand-troweled stucco plaster.
+- `TerracottaRoof.mat`: Overlapping clay roof tiles with warm orange-red tone.
+- `CrimsonRoof.mat`: Deep crimson glazed ceramic roof shingles.
+- `SlateRoof.mat`: Dark blue-grey stone slate tiles with subtle specular sheen.
+- `GoldOre.mat`: Metallic gold mineral veins embedded in rock (`_Metallic = 0.65`, `_Glossiness = 0.45`).
+- `CliffRock.mat`: Natural fractured granite stone.
+- `GoldenWheat.mat`: Golden wheat stalk thatch.
+- `DarkSoil.mat`: Rich fertile dark tilled soil.
+- `BarkWood.mat`: Rough tree bark.
+- `CutWood.mat`: Freshly cut planed lumber beams.
+- `CrimsonFabric.mat`: Crimson woven cloth fabric for market canopies.
+- `RoyalBlueFabric.mat`: Royal blue dyed fabric for heraldic banners.
+- `GoldTrim.mat`: Polished gold metal trim and accents (`_Metallic = 0.85`, `_Glossiness = 0.60`).
+- `DarkArch.mat`: Deep shadowed recessed stone masonry for archways and doorways.
+- `CourtyardCobble.mat`: Rounded river stone cobblestones with mossy grout lines.
 
 ---
 
-### 3. Strategic Map De-cluttering & Resource Layout (`ResourceSpawner.cs`)
-- **AoE4 Map Generation**:
-  - Dedicated $22.0\text{ m}$ clean radius around each player town center ($0\text{ m}$–$14.5\text{ m}$ inner clearing, guaranteed building space).
-  - 197 Trees distributed in tight, dense tactical forest groves ($2.40\text{ m}$ minimum inter-tree spacing).
-  - 21 Gold Mines spawned as distinct mineral deposits ($3.20\text{ m}$ minimum separation).
-  - 46 Wildlife Animals (Deer) roaming in natural grazing clusters.
-  - 264 total nodes spawned across the $200 \times 200\text{ m}$ battlefield with 0 overlapping nodes or impassable base clusters.
+### 3. Environment, Terrain & Atmospheric Polish (`AtmosphericVisuals.cs`)
+- **PBR Meadow Terrain**: Applied `aoe4_meadow_albedo.png` and `aoe4_meadow_normal.png` to the Unity Terrain Data via `AoE4MeadowTerrainLayer.terrainlayer` with `(45, 45)` tiling, generating a lush, tactile grassland across the entire $200 \times 200\text{ m}$ battlefield.
+- **PBR Cobblestone Courtyard Aprons**: `AtmosphericVisuals` automatically spawns grounded cobblestone courtyard discs under all buildings (radius scaled per structure: 9.5m for TC, 5.5m for military, 4.8m for farms), integrating structures into the landscape.
+- **GPU-Instanced 3D Grass**: Renders ~1,000 GPU-instanced 3D swaying meadow grass tufts and wildflower stalks in a single `Graphics.DrawMeshInstanced` draw call, dynamically excluding building footprints and resource nodes.
+- **Camera Post-Processing (`AoE4PostProcess.shader`, `AoE4CameraPostProcess.cs`)**: Screen-space ambient occlusion, warm cinematic color grading, soft bloom highlights, and subtle edge vignetting.
 
 ---
 
-### 4. AoE4 Click-and-Drag Connected Stone Walls (`BuildingPlacer.cs`, `ConstructionSite.cs`)
-- **Drag-to-Wall Mechanics**: Implemented click-and-drag wall placement supporting straight lines, diagonals, and corners.
-- **Segment Spacing & Auto-Rotation**: Automatically spaces $2.20\text{ m}$ wall segments between mouse click and drag endpoints with matching rotation tangents.
-- **Foundation Sites**: Instantiates synchronized `ConstructionSite` foundations along the wall route for single-click multi-villager batch construction.
+### 4. Normalized Geometry & Proportions (`ProjectAutoFixer.cs`)
+All prefabs pass the automated bounds and scale normalizer:
+- **Villager**: `0.76W x 1.75H x 0.60D | Bottom Y: 0.00`
+- **Builder**: `0.76W x 1.75H x 0.60D | Bottom Y: 0.00`
+- **Infantry**: `0.90W x 1.85H x 0.59D | Bottom Y: 0.00`
+- **Cavalry**: `0.58W x 2.20H x 2.40D | Bottom Y: 0.00`
+- **Animal**: `0.25W x 0.85H x 0.95D | Bottom Y: 0.00`
+- **Tree**: `3.30W x 3.20H x 4.34D | Bottom Y: 0.00`
+- **GoldMine**: `1.96W x 1.40H x 2.20D | Bottom Y: 0.00`
+- **HomeSite**: `4.80W x 3.50H x 3.97D | Bottom Y: 0.00`
+- **Barracks**: `3.80W x 3.12H x 2.80D | Bottom Y: 0.00`
+- **Farm**: `3.18W x 3.27H x 3.20D | Bottom Y: 0.00`
+- **LumberMill**: `3.20W x 2.26H x 2.15D | Bottom Y: 0.00`
+- **Market**: `3.20W x 2.77H x 2.17D | Bottom Y: 0.00`
+- **Tower**: `2.00W x 4.00H x 1.27D | Bottom Y: 0.00`
+- **Wall**: `2.20W x 2.20H x 0.75D | Bottom Y: 0.00`
+- **ConstructionSite**: `2.50W x 0.15H x 2.50D | Bottom Y: 0.00`
+- **Flag**: `0.36W x 0.80H x 0.04D | Bottom Y: 0.00`
 
 ---
 
-### 5. Building Tech Trees & Dynamic Market Trading (`Building.cs`, `BuildingInfoUI.cs`, `ResourceBuildingUI.cs`)
-- **Tech Research Pipeline**:
-  - *Damascus Steel Weapons*: +6 military attack damage to Infantry & Cavalry.
-  - *Stone Fortifications*: +400 HP and increased fire rate to Watchtowers.
-  - *Wheelbarrow*: +30% Villager carry capacity and +15% gathering speed.
-- **Dynamic Market Trading**: Real-time Buy/Sell mechanics for Food, Wood, and Gold with fluctuating commodity exchange rates and immediate resource synchronization.
+### 5. Automated Build Pipeline & Tools
+- `MedievalModelBuilder.RebuildAllModels()`: Automatically re-binds all 8 `.obj` models, wires their 17 PBR materials, strips child colliders, and links `ResourceNode.visualRoot`.
+- `ProjectAutoFixer.FixAll()`: Complete one-click pipeline running PBR upgrades, animator repairs, model re-binding, scale normalization, and reporting.
+- `AIBridgeServer`: HTTP bridge on port 9876 with routes `/health`, `/refresh`, `/fixall`, `/logs`, `/logs/clear`, `/playmode`, `/debug/showcase`, `/capture/game`, `/capture/scene`.
 
 ---
 
-### 6. Age I–IV Progression & 3D Medieval Gear (`AgeManager.cs`, `Infantry.cs`, `Cavalry.cs`, `Villager.cs`)
-- **Four Distinct Historical Ages**:
-  - Age I (Dark Age) $\rightarrow$ Age II (Feudal Age) $\rightarrow$ Age III (Castle Age) $\rightarrow$ Age IV (Imperial Age).
-  - Town Center age progression costs, sound notifications, and global team state dispatch.
-- **Dynamic Stat & Veterancy Upgrades**:
-  - **Infantry**: Veteran Infantry (+4 DMG, +25 HP) in Age II; Castle Guard (+10 DMG, +60 HP) in Age III; Imperial Champion (+18 DMG, +110 HP) in Age IV.
-  - **Cavalry**: Mounted veterancy bonuses with heavy attack damage and health scaling.
-  - **Villager**: +2/+5/+8 gathering bonus and speed multipliers up to +35%.
-
----
-
-### 7. Procedural Unit Animations (`ProceduralUnitAnimator.cs`)
-- **Expressive RTS Stride Dynamics**:
-  - Smooth vertical bounce and forward acceleration lean ($5.8^\circ$) during locomotion.
-  - Cavalry canter and gallop pitch oscillation ($5.0^\circ$ at $11\text{ rad/s}$).
-  - Combat and gathering forward lunges ($13.0^\circ$ pitch arc) when attacking or harvesting.
-  - Deer grazing head-dip and resting idle cycles.
-- **Safe Parameter Reflection**: Cached parameter lookup in `ProceduralUnitAnimator` eliminates Unity native warnings when querying unit animators.
-
----
-
-### 8. 3D Tower Arrows & Dynamic Damage VFX (`TowerAttack.cs`, `EffectManager.cs`, `AudioManager.cs`)
-- **Ballistic 3D Arrow Projectiles**: Watchtowers fire physical 3D arrow meshes along parabolic trajectories with procedural arrow fletching and target impact audio.
-- **Dynamic Building Damage VFX**: Real-time health monitoring billows dark smoke and orange sparks when structure health falls below 50%, intensifying at critical health (< 25%), and stopping if repaired.
-
----
-
-### 9. AoE4 Royal Navy & Gold HUD (`AoE4HUDThemer.cs`)
-- **Aesthetic Visual Theme**:
-  - Royal Navy blue backgrounds (`#0B1320` / `#162238`) with metallic gold filigree borders (`#D4AF37`).
-  - Gilded command cards, unit portrait badges, resource cost icons, and age emblems.
-  - AoE4 styled minimap framing, selection details panel, and notification ribbons.
-
----
-
-### 10. Normalization, QA & Stress Verification (`ProjectAutoFixer.cs`, `AIBridgeServer.cs`, `RuntimeControl.cs`)
-- **Verified Prefab World Bounds (1:1 Ground Contact, bottom $Y = 0.00$)**:
-  | Prefab | World Bounds (W x H x D) | Root Scale | Collider Geometry |
-  |---|---|---|---|
-  | **Villager** | 0.76W x 1.75H x 0.60D | (0.75, 0.75, 0.75) | Capsule ($r=0.40, h=1.75$) |
-  | **Builder** | 0.76W x 1.75H x 0.60D | (0.75, 0.75, 0.75) | Capsule ($r=0.40, h=1.75$) |
-  | **Infantry** | 0.90W x 1.85H x 0.59D | (0.78, 0.78, 0.78) | Capsule ($r=0.42, h=1.85$) |
-  | **Cavalry** | 0.58W x 2.20H x 2.40D | (0.75, 0.75, 0.75) | Capsule ($r=0.55, h=2.20$) |
-  | **Animal (Deer)** | 0.25W x 0.85H x 0.95D | (1.00, 1.00, 1.00) | Capsule ($r=0.35, h=0.85$) |
-  | **Tree** | 2.43W x 3.20H x 2.36D | (1.00, 1.00, 1.00) | Capsule ($r=0.35, h=3.20$) |
-  | **GoldMine** | 2.20W x 1.40H x 1.00D | (1.00, 1.00, 1.00) | Box ($2.20 \times 1.40 \times 1.00$) |
-  | **HomeSite (TC)** | 4.80W x 3.60H x 2.05D | (1.00, 1.00, 1.00) | Box ($4.80 \times 3.60 \times 1.25$) |
-  | **Barracks** | 3.80W x 2.39H x 2.47D | (1.00, 1.00, 1.00) | Box ($3.80 \times 2.39 \times 2.47$) |
-  | **Farm** | 2.91W x 2.14H x 3.20D | (1.00, 1.00, 1.00) | Box ($2.91 \times 2.14 \times 3.20$) |
-  | **LumberMill** | 3.20W x 1.60H x 2.33D | (1.00, 1.00, 1.00) | Box ($3.20 \times 1.60 \times 2.33$) |
-  | **Market** | 3.20W x 2.62H x 1.67D | (1.00, 1.00, 1.00) | Box ($3.20 \times 2.62 \times 1.67$) |
-  | **Tower** | 2.00W x 4.00H x 2.00D | (1.00, 1.00, 1.00) | Box ($2.00 \times 4.00 \times 2.00$) |
-  | **Wall** | 2.20W x 2.20H x 0.56D | (1.00, 1.00, 1.00) | Box ($2.20 \times 2.20 \times 0.56$) |
-  | **ConstructionSite** | 2.50W x 0.15H x 2.50D | (1.00, 1.00, 1.00) | Box ($2.50 \times 0.15 \times 2.50$) |
-  | **Flag** | 0.36W x 0.80H x 0.04D | (1.00, 1.00, 1.00) | None |
-
-- **Play Mode Test Results**:
-  - **Compile Status**: `compileFailed: false`.
-  - **Live Play Mode Logs**: **64 logs**, **0 errors**, **0 warnings**, **0 exceptions**.
-  - **Visual Capture Artifacts**:
-    - `C:\Users\Dali\.gemini\antigravity\brain\ebcbb35f-e44d-4ad4-a850-92b76c447506\summoned_units_fixed.png` (High-res Play Mode capture with summoned units).
-    - `C:\Users\Dali\.gemini\antigravity\brain\ebcbb35f-e44d-4ad4-a850-92b76c447506\game_view_aoe4.png` (Game View).
-    - `C:\Users\Dali\.gemini\antigravity\brain\ebcbb35f-e44d-4ad4-a850-92b76c447506\aoe4_hud_playmode.png` (Play Mode capture with themer).
-
----
-
-## In Progress
-Nothing pending. Giant summoned unit scaling bug is 100% resolved and verified.
-
----
-
-## Next Steps
-1. Playtest a full Dark Age to Imperial Age progression game against the updated AI bots.
-2. Drag and build connected perimeter stone walls with towers and inspect arrow firing under combat.
-3. Test market trading under fluctuating resource deficits during siege attacks.
-
----
-
-## Environment Notes
-- **Machine**: `DESKTOP-OJME2E2`
-- **Project Root**: `F:/MinAge`
-- **Branch**: `main` · **Remote**: `https://github.com/DALI951/the-full-project.git`
-- **Unity Version**: `2022.3.62f2`
-- **Editor HTTP Bridge**: Active on `http://localhost:9876/` (`/health`, `/refresh`, `/fixall`, `/logs`, `/logs/clear`, `/playmode`, `/debug/summon`, `/capture/game`, `/capture/scene`)
+### 6. Visual Verification
+- **Verified Showcase Screenshot**: `C:\Users\Dali\.gemini\antigravity\brain\ebcbb35f-e44d-4ad4-a850-92b76c447506\aoe4_pbr_showcase.png`.
+- Displays the complete medieval settlement: crenellated watchtowers, connecting curtain walls, Tudor town center, timber barracks, bustling market, windmill farm, lumber mill, gold mine outcrop, guarded by proportional infantry with swords/shields, villagers with gathering tools, and mounted cavalry.

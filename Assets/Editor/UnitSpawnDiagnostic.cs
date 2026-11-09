@@ -6,6 +6,122 @@ using UnityEngine;
 
 public static class UnitSpawnDiagnostic
 {
+    public static string SpawnShowcase()
+    {
+        if (!EditorApplication.isPlaying)
+        {
+            return "{\"error\":\"Must be in Play Mode to spawn showcase\"}";
+        }
+
+        // Clean any previous showcase objects
+        GameObject oldHolder = GameObject.Find("SHOWCASE_VILLAGE");
+        if (oldHolder != null) Object.Destroy(oldHolder);
+
+        GameObject holder = new GameObject("SHOWCASE_VILLAGE");
+
+        // Find existing player TownCenter or default to (0,0,0)
+        Vector3 center = Vector3.zero;
+        GameObject existingTC = GameObject.Find("HomeSite(Clone)");
+        if (existingTC != null)
+        {
+            center = existingTC.transform.position;
+            // Reposition or hide the duplicate initial TC so our showcase TC takes center stage
+            existingTC.SetActive(false);
+        }
+
+        // Reveal fog of war generously around showcase center
+        if (FogOfWar.Instance != null)
+        {
+            FogOfWar.Instance.Reveal(center, 50f);
+        }
+
+        // Building positions relative to center
+        var buildingList = new (string prefab, Vector3 relPos, float rotY)[]
+        {
+            ("Assets/Prefabs/HomeSite.prefab",   new Vector3(0f, 0f, 0f), 0f),
+            ("Assets/Prefabs/Barracks.prefab",   new Vector3(-6.2f, 0f, 1.2f), 15f),
+            ("Assets/Prefabs/Market.prefab",     new Vector3(6.2f, 0f, 1.2f), -15f),
+            ("Assets/Prefabs/Farm.prefab",       new Vector3(-5.0f, 0f, 6.8f), 0f),
+            ("Assets/Prefabs/LumberMill.prefab", new Vector3(5.0f, 0f, 6.8f), 0f),
+            ("Assets/Prefabs/Tower.prefab",      new Vector3(-3.4f, 0f, -4.8f), 10f),
+            ("Assets/Prefabs/Wall.prefab",       new Vector3(-1.1f, 0f, -4.8f), 0f),
+            ("Assets/Prefabs/Wall.prefab",       new Vector3(1.1f, 0f, -4.8f), 0f),
+            ("Assets/Prefabs/Tower.prefab",      new Vector3(3.4f, 0f, -4.8f), -10f),
+            ("Assets/Prefabs/GoldMine.prefab",   new Vector3(0f, 0f, 8.5f), 0f)
+        };
+
+        foreach (var (pPath, relPos, rotY) in buildingList)
+        {
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(pPath);
+            if (prefab == null) continue;
+            Vector3 pos = center + relPos;
+            pos.y = 0f;
+            GameObject inst = Object.Instantiate(prefab, pos, Quaternion.Euler(0f, rotY, 0f), holder.transform);
+            inst.name = $"SHOWCASE_{prefab.name}";
+            Building b = inst.GetComponent<Building>();
+            if (b != null)
+            {
+                b.SetOwner(0);
+            }
+        }
+
+        // Unit positions relative to center
+        var unitList = new (string prefab, Vector3 relPos, float rotY)[]
+        {
+            ("Assets/Prefabs/Villager.prefab", new Vector3(-1.2f, 0f, -2.2f), 140f),
+            ("Assets/Prefabs/Villager.prefab", new Vector3(1.0f, 0f, -2.4f), 160f),
+            ("Assets/Prefabs/Villager.prefab", new Vector3(-0.4f, 0f, 6.8f), 30f),
+            ("Assets/Prefabs/Infantry.prefab", new Vector3(-3.8f, 0f, -3.2f), 180f),
+            ("Assets/Prefabs/Infantry.prefab", new Vector3(-2.6f, 0f, -3.4f), 170f),
+            ("Assets/Prefabs/Cavarly.prefab",  new Vector3(3.0f, 0f, -2.8f), 190f),
+            ("Assets/Prefabs/Cavarly.prefab",  new Vector3(4.6f, 0f, -2.2f), 175f)
+        };
+
+        foreach (var (pPath, relPos, rotY) in unitList)
+        {
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(pPath);
+            if (prefab == null) continue;
+            Vector3 pos = center + relPos;
+            pos.y = 0f;
+            GameObject inst = Object.Instantiate(prefab, pos, Quaternion.Euler(0f, rotY, 0f), holder.transform);
+            inst.name = $"SHOWCASE_{prefab.name}";
+            Unit u = inst.GetComponent<Unit>();
+            if (u != null)
+            {
+                u.SetOwner(0);
+                u.AttachMedievalGear();
+            }
+        }
+
+        // Camera setup for optimal isometric overview
+        Camera cam = Camera.main;
+        if (cam == null)
+        {
+            foreach (var c in Camera.allCameras)
+            {
+                if (c != null && c.name.IndexOf("MiniMap", System.StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    cam = c;
+                    break;
+                }
+            }
+        }
+
+        if (cam != null)
+        {
+            cam.transform.position = center + new Vector3(0f, 10.5f, -12.5f);
+            cam.transform.rotation = Quaternion.Euler(38f, 0f, 0f);
+        }
+
+        return Newtonsoft.Json.JsonConvert.SerializeObject(new
+        {
+            success = true,
+            center = center.ToString("F2"),
+            buildingsSpawned = buildingList.Length,
+            unitsSpawned = unitList.Length
+        });
+    }
+
     public static string RunDiagnosis()
     {
         if (!EditorApplication.isPlaying)

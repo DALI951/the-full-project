@@ -48,6 +48,7 @@ public static class AIBridgeServer
             { "GET:/logs/clear", req => { lock (_logLock) { _recentLogs.Clear(); } return "{\"status\":\"cleared\"}"; } },
             { "POST:/logs/clear", req => { lock (_logLock) { _recentLogs.Clear(); } return "{\"status\":\"cleared\"}"; } },
             { "GET:/debug/summon", req => RunOnMainThread(() => UnitSpawnDiagnostic.RunDiagnosis()) },
+            { "GET:/debug/showcase", req => RunOnMainThread(() => UnitSpawnDiagnostic.SpawnShowcase()) },
             { "GET:/health", req => RunOnMainThread(() => JsonUtils.ToJson(new { status = "ok", unity = "editor", isCompiling = EditorApplication.isCompiling, compileFailed = EditorUtility.scriptCompilationFailed, isPlaying = EditorApplication.isPlaying })) }
         };
 

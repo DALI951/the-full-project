@@ -1,0 +1,138 @@
+# AoE4 Building Materials
+
+newmtl StoneWall
+Ka 0.120 0.120 0.120
+Kd 0.620 0.600 0.580
+Ks 0.050 0.050 0.050
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl TimberFrame
+Ka 0.100 0.080 0.050
+Kd 0.320 0.200 0.120
+Ks 0.040 0.040 0.040
+Ns 15.0
+d 1.0
+illum 2
+
+newmtl TudorPlaster
+Ka 0.150 0.150 0.130
+Kd 0.880 0.860 0.800
+Ks 0.020 0.020 0.020
+Ns 5.0
+d 1.0
+illum 2
+
+newmtl TerracottaRoof
+Ka 0.150 0.080 0.050
+Kd 0.720 0.320 0.180
+Ks 0.080 0.080 0.080
+Ns 20.0
+d 1.0
+illum 2
+
+newmtl CrimsonRoof
+Ka 0.120 0.040 0.040
+Kd 0.620 0.150 0.150
+Ks 0.080 0.080 0.080
+Ns 25.0
+d 1.0
+illum 2
+
+newmtl SlateRoof
+Ka 0.080 0.090 0.100
+Kd 0.280 0.320 0.380
+Ks 0.120 0.120 0.140
+Ns 40.0
+d 1.0
+illum 2
+
+newmtl GoldOre
+Ka 0.250 0.200 0.050
+Kd 0.950 0.780 0.150
+Ks 0.800 0.700 0.200
+Ns 90.0
+d 1.0
+illum 2
+
+newmtl CliffRock
+Ka 0.080 0.080 0.080
+Kd 0.420 0.400 0.380
+Ks 0.050 0.050 0.050
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl GoldenWheat
+Ka 0.150 0.130 0.040
+Kd 0.880 0.750 0.250
+Ks 0.060 0.060 0.020
+Ns 15.0
+d 1.0
+illum 2
+
+newmtl DarkSoil
+Ka 0.050 0.040 0.030
+Kd 0.220 0.160 0.100
+Ks 0.020 0.020 0.020
+Ns 5.0
+d 1.0
+illum 2
+
+newmtl BarkWood
+Ka 0.080 0.060 0.040
+Kd 0.280 0.180 0.110
+Ks 0.030 0.030 0.030
+Ns 8.0
+d 1.0
+illum 2
+
+newmtl CutWood
+Ka 0.120 0.100 0.060
+Kd 0.750 0.620 0.420
+Ks 0.050 0.050 0.050
+Ns 12.0
+d 1.0
+illum 2
+
+newmtl CrimsonFabric
+Ka 0.120 0.040 0.040
+Kd 0.750 0.140 0.140
+Ks 0.040 0.040 0.040
+Ns 10.0
+d 1.0
+illum 2
+
+newmtl RoyalBlueFabric
+Ka 0.040 0.060 0.150
+Kd 0.140 0.300 0.720
+Ks 0.060 0.060 0.080
+Ns 15.0
+d 1.0
+illum 2
+
+newmtl GoldFabric
+Ka 0.150 0.120 0.030
+Kd 0.880 0.720 0.180
+Ks 0.060 0.050 0.020
+Ns 15.0
+d 1.0
+illum 2
+
+newmtl GoldTrim
+Ka 0.200 0.160 0.040
+Kd 0.880 0.720 0.200
+Ks 0.600 0.500 0.150
+Ns 60.0
+d 1.0
+illum 2
+
+newmtl DarkArch
+Ka 0.020 0.020 0.020
+Kd 0.080 0.080 0.080
+Ks 0.010 0.010 0.010
+Ns 5.0
+d 1.0
+illum 2
+

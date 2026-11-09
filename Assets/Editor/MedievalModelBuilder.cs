@@ -1,37 +1,47 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
 
 /// <summary>
-/// MedievalModelBuilder — Restores clean authored 3D FBX models for all buildings
-/// and resource nodes (GoldMine.fbx, Wall.fbx, Farm.fbx, LumberMill.fbx, Market.fbx,
-/// Tower.fbx, HomeSite.fbx, Barracks.fbx), strips primitive props, and sets up two-sided materials.
+/// MedievalModelBuilder — Binds high-detail AoE4 3D models (Assets/Models/AoE4Buildings/*.obj)
+/// to the 8 building prefabs, wires all 17 PBR normal-mapped materials from Assets/Materials/AoE4PBR/,
+/// and strips duplicate/child colliders so physics and navigation remain pristine.
 /// </summary>
 public static class MedievalModelBuilder
 {
+    private const string PbrMaterialFolder = "Assets/Materials/AoE4PBR";
+
+    private static readonly (string prefabPath, string objPath, string childName)[] BuildingMappings = new[]
+    {
+        ("Assets/Prefabs/HomeSite.prefab",   "Assets/Models/AoE4Buildings/AoE4_TownCenter.obj", "TownCenter"),
+        ("Assets/Prefabs/Barracks.prefab",   "Assets/Models/AoE4Buildings/AoE4_Barracks.obj",   "Barracks"),
+        ("Assets/Prefabs/Farm.prefab",       "Assets/Models/AoE4Buildings/AoE4_Farm.obj",       "Farm"),
+        ("Assets/Prefabs/LumberMill.prefab", "Assets/Models/AoE4Buildings/AoE4_LumberMill.obj", "LumberMill"),
+        ("Assets/Prefabs/Market.prefab",     "Assets/Models/AoE4Buildings/AoE4_Market.obj",     "Market"),
+        ("Assets/Prefabs/Tower.prefab",      "Assets/Models/AoE4Buildings/AoE4_Watchtower.obj", "Tower"),
+        ("Assets/Prefabs/Wall.prefab",       "Assets/Models/AoE4Buildings/AoE4_StoneWall.obj",  "Wall"),
+        ("Assets/Prefabs/GoldMine.prefab",   "Assets/Models/AoE4Buildings/AoE4_GoldMine.obj",   "GoldMine")
+    };
+
     [MenuItem("Tools/Rebuild Medieval Models")]
     public static void RebuildAllModels()
     {
-        Debug.Log("[MedievalModelBuilder] Restoring authored 3D FBX models for all buildings and resources...");
+        Debug.Log("[MedievalModelBuilder] Binding high-detail AoE4 OBJ models and 17 PBR materials to all 8 prefabs...");
 
-        RebuildGoldMine("Assets/Prefabs/GoldMine.prefab");
-        RebuildWall("Assets/Prefabs/Wall.prefab");
-        RestoreBuildingFBX("Assets/Prefabs/Farm.prefab", "Assets/Models/Buildings/Farm.fbx", "Farm");
-        RestoreBuildingFBX("Assets/Prefabs/LumberMill.prefab", "Assets/Models/Buildings/LumberMill.fbx", "LumberMill");
-        RestoreBuildingFBX("Assets/Prefabs/Market.prefab", "Assets/Models/Buildings/Market.fbx", "Market");
-        RestoreBuildingFBX("Assets/Prefabs/Tower.prefab", "Assets/Models/Buildings/Tower.fbx", "Tower");
-        RestoreBuildingFBX("Assets/Prefabs/HomeSite.prefab", "Assets/Models/Buildings/HomeSite.fbx", "HomeSite");
-        RestoreBuildingFBX("Assets/Prefabs/Barracks.prefab", "Assets/Models/Buildings/Barracks.fbx", "Barracks");
+        var pbrMatDict = LoadPbrMaterialDictionary();
+
+        foreach (var (prefabPath, objPath, childName) in BuildingMappings)
+        {
+            RebuildBuildingModel(prefabPath, objPath, childName, pbrMatDict);
+        }
 
         AssetDatabase.SaveAssets();
-        Debug.Log("[MedievalModelBuilder] All authored 3D FBX models successfully restored and cleaned!");
+        Debug.Log("[MedievalModelBuilder] All 8 AoE4 building models successfully bound, PBR textured, and colliders stripped!");
     }
 
-    // =========================================================================
-    // 1. GoldMine.prefab — Authored GoldMine.fbx, Rotated 180°, Two-Sided Material
-    // =========================================================================
-    public static void RebuildGoldMine(string prefabPath)
+    public static void RebuildBuildingModel(string prefabPath, string objPath, string childName, Dictionary<string, Material> pbrMatDict = null)
     {
         if (!File.Exists(prefabPath))
         {
@@ -39,71 +49,62 @@ public static class MedievalModelBuilder
             return;
         }
 
+        if (pbrMatDict == null)
+        {
+            pbrMatDict = LoadPbrMaterialDictionary();
+        }
+
         GameObject root = PrefabUtility.LoadPrefabContents(prefabPath);
         if (root == null) return;
 
         try
         {
-            // 1. Disable prototype renderer on root
+            // 1. Remove or disable prototype renderer/meshfilter on root
             var rootRend = root.GetComponent<MeshRenderer>();
-            if (rootRend != null && rootRend.enabled) rootRend.enabled = false;
+            if (rootRend != null) UnityEngine.Object.DestroyImmediate(rootRend, true);
+            var rootFilt = root.GetComponent<MeshFilter>();
+            if (rootFilt != null) UnityEngine.Object.DestroyImmediate(rootFilt, true);
 
-            // 2. Remove any previous primitive cube visual stacks or old models
+            // 2. Strip previous child visual objects, primitive props, and old models
             for (int i = root.transform.childCount - 1; i >= 0; i--)
             {
                 Transform child = root.transform.GetChild(i);
                 if (child.name.Equals("SelectionCircle", StringComparison.OrdinalIgnoreCase)) continue;
-                if (child.name.Equals("GoldMineVisual", StringComparison.OrdinalIgnoreCase) ||
-                    child.name.Equals("GoldMineModel", StringComparison.OrdinalIgnoreCase) ||
-                    child.name.Equals("ArchitecturalProps", StringComparison.OrdinalIgnoreCase) ||
-                    child.name.IndexOf("GoldMine", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    child.name.Equals("Model", StringComparison.OrdinalIgnoreCase))
-                {
-                    UnityEngine.Object.DestroyImmediate(child.gameObject);
-                }
+                if (child.name.Equals("SpawnPoint", StringComparison.OrdinalIgnoreCase)) continue;
+                if (child.name.Equals("Pole", StringComparison.OrdinalIgnoreCase)) continue;
+                if (child.name.Equals("FlagHead", StringComparison.OrdinalIgnoreCase)) continue;
+                if (child.GetComponent<Canvas>() != null) continue;
+
+                UnityEngine.Object.DestroyImmediate(child.gameObject);
             }
 
-            // 3. Instantiate authored GoldMine.fbx
-            string fbxPath = "Assets/Models/Buildings/GoldMine.fbx";
-            GameObject fbxAsset = AssetDatabase.LoadAssetAtPath<GameObject>(fbxPath);
-            if (fbxAsset == null)
+            // 3. Load authored AoE4 .obj asset
+            GameObject objAsset = AssetDatabase.LoadAssetAtPath<GameObject>(objPath);
+            if (objAsset == null)
             {
-                Debug.LogError($"[MedievalModelBuilder] Missing model asset at {fbxPath}");
+                Debug.LogError($"[MedievalModelBuilder] Missing model asset at {objPath}");
                 return;
             }
 
-            GameObject modelInstance = (GameObject)PrefabUtility.InstantiatePrefab(fbxAsset, root.transform);
+            // 4. Instantiate model child
+            GameObject modelInstance = (GameObject)PrefabUtility.InstantiatePrefab(objAsset, root.transform);
             if (modelInstance == null)
-                modelInstance = UnityEngine.Object.Instantiate(fbxAsset, root.transform);
-
-            modelInstance.name = "GoldMineModel";
-            modelInstance.transform.localPosition = Vector3.zero;
-            // Entrance faces toward the camera (camera is at negative Z looking positive Z)
-            modelInstance.transform.localEulerAngles = new Vector3(0f, 180f, 0f);
-            modelInstance.transform.localScale = Vector3.one;
-
-            // 4. Configure two-sided material with _Cull = 0 so backfaces are never invisible
-            Material goldMineMat = GetOrCreateTwoSidedBuildingMaterial("Mat_GoldMine_TwoSided", "Assets/Models/Buildings/GoldMine.fbm/BuildingAtlas.png");
-            foreach (Renderer r in modelInstance.GetComponentsInChildren<Renderer>(true))
             {
-                if (goldMineMat != null)
-                {
-                    r.sharedMaterial = goldMineMat;
-                }
-                else if (r.sharedMaterial != null)
-                {
-                    if (r.sharedMaterial.HasProperty("_Cull"))
-                    {
-                        r.sharedMaterial.SetFloat("_Cull", 0f);
-                        r.sharedMaterial.SetInt("_Cull", 0);
-                    }
-                }
+                modelInstance = UnityEngine.Object.Instantiate(objAsset, root.transform);
             }
 
-            // 5. Remove any colliders from the visual child
+            modelInstance.name = childName;
+            modelInstance.transform.localPosition = Vector3.zero;
+            modelInstance.transform.localRotation = Quaternion.identity;
+            modelInstance.transform.localScale = Vector3.one;
+
+            // 5. Strip all child colliders (only root should hold BoxCollider / NavMeshObstacle)
             StripColliders(modelInstance);
 
-            // 6. Hook up ResourceNode.visualRoot
+            // 6. Wire 17 PBR normal-mapped materials from Assets/Materials/AoE4PBR/
+            WirePbrMaterials(modelInstance, pbrMatDict);
+
+            // 7. Hook up ResourceNode.visualRoot if present (e.g. GoldMine)
             ResourceNode rn = root.GetComponent<ResourceNode>();
             if (rn != null)
             {
@@ -112,7 +113,7 @@ public static class MedievalModelBuilder
             }
 
             PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
-            Debug.Log($"[MedievalModelBuilder] Restored authored 3D GoldMine.fbx (facing camera, two-sided PBR): {prefabPath}");
+            Debug.Log($"[MedievalModelBuilder] Successfully bound AoE4 model '{childName}' to {prefabPath}");
         }
         finally
         {
@@ -120,196 +121,104 @@ public static class MedievalModelBuilder
         }
     }
 
-    // =========================================================================
-    // 2. Wall.prefab — Authored Wall.fbx
-    // =========================================================================
-    public static void RebuildWall(string prefabPath)
+    private static Dictionary<string, Material> LoadPbrMaterialDictionary()
     {
-        if (!File.Exists(prefabPath))
+        var dict = new Dictionary<string, Material>(StringComparer.OrdinalIgnoreCase);
+        if (!AssetDatabase.IsValidFolder(PbrMaterialFolder)) return dict;
+
+        string[] guids = AssetDatabase.FindAssets("t:Material", new[] { PbrMaterialFolder });
+        foreach (string guid in guids)
         {
-            Debug.LogWarning($"[MedievalModelBuilder] Prefab not found: {prefabPath}");
-            return;
-        }
-
-        GameObject root = PrefabUtility.LoadPrefabContents(prefabPath);
-        if (root == null) return;
-
-        try
-        {
-            var rootRend = root.GetComponent<MeshRenderer>();
-            if (rootRend != null && rootRend.enabled) rootRend.enabled = false;
-
-            // Remove WallVisual or any previous primitive cube stack
-            for (int i = root.transform.childCount - 1; i >= 0; i--)
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat != null)
             {
-                Transform child = root.transform.GetChild(i);
-                if (child.name.Equals("SelectionCircle", StringComparison.OrdinalIgnoreCase)) continue;
-                if (child.name.Equals("WallVisual", StringComparison.OrdinalIgnoreCase) ||
-                    child.name.Equals("ArchitecturalProps", StringComparison.OrdinalIgnoreCase) ||
-                    child.name.Equals("Wall", StringComparison.OrdinalIgnoreCase))
-                {
-                    UnityEngine.Object.DestroyImmediate(child.gameObject);
-                }
+                string key = mat.name.Trim();
+                dict[key] = mat;
+                // Also index without common prefixes/suffixes
+                dict[key.Replace(" ", "")] = mat;
+                dict[key.Replace("_", "")] = mat;
             }
-
-            // Instantiate authored Wall.fbx
-            string fbxPath = "Assets/Models/Buildings/Wall.fbx";
-            GameObject fbxAsset = AssetDatabase.LoadAssetAtPath<GameObject>(fbxPath);
-            if (fbxAsset == null)
-            {
-                Debug.LogError($"[MedievalModelBuilder] Missing model asset at {fbxPath}");
-                return;
-            }
-
-            GameObject modelInstance = (GameObject)PrefabUtility.InstantiatePrefab(fbxAsset, root.transform);
-            if (modelInstance == null)
-                modelInstance = UnityEngine.Object.Instantiate(fbxAsset, root.transform);
-
-            modelInstance.name = "Wall";
-            modelInstance.transform.localPosition = Vector3.zero;
-            modelInstance.transform.localRotation = Quaternion.identity;
-            modelInstance.transform.localScale = Vector3.one;
-
-            StripColliders(modelInstance);
-
-            PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
-            Debug.Log($"[MedievalModelBuilder] Restored authored 3D Wall.fbx: {prefabPath}");
         }
-        finally
-        {
-            PrefabUtility.UnloadPrefabContents(root);
-        }
+
+        return dict;
     }
 
-    // =========================================================================
-    // 3. Buildings — Restore Authored FBX and Remove ArchitecturalProps
-    // =========================================================================
-    public static void RestoreBuildingFBX(string prefabPath, string fbxPath, string childName)
+    private static void WirePbrMaterials(GameObject modelInstance, Dictionary<string, Material> pbrMatDict)
     {
-        if (!File.Exists(prefabPath)) return;
-        GameObject root = PrefabUtility.LoadPrefabContents(prefabPath);
-        if (root == null) return;
+        if (pbrMatDict == null || pbrMatDict.Count == 0) return;
 
-        try
+        Renderer[] renderers = modelInstance.GetComponentsInChildren<Renderer>(true);
+        foreach (Renderer r in renderers)
         {
-            var rootRend = root.GetComponent<MeshRenderer>();
-            if (rootRend != null && rootRend.enabled) rootRend.enabled = false;
+            if (r == null) continue;
+            Material[] shared = r.sharedMaterials;
+            bool modified = false;
 
-            // Remove ArchitecturalProps and any loose primitive children
-            for (int i = root.transform.childCount - 1; i >= 0; i--)
+            for (int i = 0; i < shared.Length; i++)
             {
-                Transform child = root.transform.GetChild(i);
-                if (child.name.Equals("ArchitecturalProps", StringComparison.OrdinalIgnoreCase) ||
-                    child.name.Equals("GoldMineVisual", StringComparison.OrdinalIgnoreCase) ||
-                    child.name.Equals("WallVisual", StringComparison.OrdinalIgnoreCase))
+                Material cur = shared[i];
+                if (cur == null) continue;
+
+                string matName = cur.name
+                    .Replace(" (Instance)", "")
+                    .Replace(" (Clone)", "")
+                    .Trim();
+
+                if (pbrMatDict.TryGetValue(matName, out Material targetMat) && targetMat != null)
                 {
-                    UnityEngine.Object.DestroyImmediate(child.gameObject);
+                    shared[i] = targetMat;
+                    modified = true;
+                }
+                else
+                {
+                    // Fallback fuzzy search by key match
+                    foreach (var kvp in pbrMatDict)
+                    {
+                        if (matName.IndexOf(kvp.Key, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            kvp.Key.IndexOf(matName, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            shared[i] = kvp.Value;
+                            modified = true;
+                            break;
+                        }
+                    }
                 }
             }
 
-            // Check if authored model child already exists
-            Transform existingModel = null;
-            for (int i = 0; i < root.transform.childCount; i++)
+            if (modified)
             {
-                Transform child = root.transform.GetChild(i);
-                if (child.name.Equals("SelectionCircle", StringComparison.OrdinalIgnoreCase)) continue;
-                if (child.name.Equals("SpawnPoint", StringComparison.OrdinalIgnoreCase)) continue;
-                if (child.GetComponent<Canvas>() != null) continue;
-                if (child.GetComponentsInChildren<Renderer>(true).Length > 0)
-                {
-                    existingModel = child;
-                    break;
-                }
+                r.sharedMaterials = shared;
+                EditorUtility.SetDirty(r);
             }
-
-            if (existingModel == null)
-            {
-                GameObject fbxAsset = AssetDatabase.LoadAssetAtPath<GameObject>(fbxPath);
-                if (fbxAsset != null)
-                {
-                    GameObject childInstance = (GameObject)PrefabUtility.InstantiatePrefab(fbxAsset, root.transform);
-                    if (childInstance == null)
-                        childInstance = UnityEngine.Object.Instantiate(fbxAsset, root.transform);
-
-                    childInstance.name = childName;
-                    childInstance.transform.localPosition = Vector3.zero;
-                    childInstance.transform.localRotation = Quaternion.identity;
-                    childInstance.transform.localScale = Vector3.one;
-                    existingModel = childInstance.transform;
-                    Debug.Log($"[MedievalModelBuilder] Restored missing {childName} model from {fbxPath}");
-                }
-            }
-
-            if (existingModel != null)
-            {
-                StripColliders(existingModel.gameObject);
-            }
-
-            PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
-            Debug.Log($"[MedievalModelBuilder] Cleaned building prefab (no primitive props): {prefabPath}");
-        }
-        finally
-        {
-            PrefabUtility.UnloadPrefabContents(root);
         }
     }
 
-    // =========================================================================
-    // Material & Collider Utilities
-    // =========================================================================
     private static void StripColliders(GameObject go)
     {
         var colliders = go.GetComponentsInChildren<Collider>(true);
         for (int i = 0; i < colliders.Length; i++)
         {
-            UnityEngine.Object.DestroyImmediate(colliders[i]);
+            UnityEngine.Object.DestroyImmediate(colliders[i], true);
         }
     }
 
-    private static Material GetOrCreateTwoSidedBuildingMaterial(string matName, string texturePath)
+    // Legacy method stubs
+    public static void RebuildGoldMine(string prefabPath) =>
+        RebuildBuildingModel(prefabPath, "Assets/Models/AoE4Buildings/AoE4_GoldMine.obj", "GoldMine");
+
+    public static void RebuildWall(string prefabPath) =>
+        RebuildBuildingModel(prefabPath, "Assets/Models/AoE4Buildings/AoE4_StoneWall.obj", "Wall");
+
+    public static void RestoreBuildingFBX(string prefabPath, string fbxPath, string childName)
     {
-        string folder = "Assets/Materials";
-        if (!Directory.Exists(folder))
+        foreach (var mapping in BuildingMappings)
         {
-            Directory.CreateDirectory(folder);
-        }
-
-        string path = $"{folder}/{matName}.mat";
-        Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
-        if (mat == null)
-        {
-            Shader shader = Shader.Find("Custom/TwoSidedBuilding");
-            if (shader == null) shader = Shader.Find("Standard");
-            if (shader == null) shader = Shader.Find("Diffuse");
-
-            mat = new Material(shader);
-            mat.name = matName;
-
-            Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>(texturePath);
-            if (tex != null)
+            if (mapping.prefabPath.Equals(prefabPath, StringComparison.OrdinalIgnoreCase))
             {
-                mat.mainTexture = tex;
+                RebuildBuildingModel(mapping.prefabPath, mapping.objPath, mapping.childName);
+                return;
             }
-
-            mat.color = Color.white;
-            if (mat.HasProperty("_Cull"))
-            {
-                mat.SetFloat("_Cull", 0f);
-                mat.SetInt("_Cull", 0);
-            }
-
-            AssetDatabase.CreateAsset(mat, path);
         }
-        else
-        {
-            if (mat.HasProperty("_Cull"))
-            {
-                mat.SetFloat("_Cull", 0f);
-                mat.SetInt("_Cull", 0);
-            }
-            EditorUtility.SetDirty(mat);
-        }
-
-        return mat;
     }
 }

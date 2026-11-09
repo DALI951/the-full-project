@@ -37,6 +37,7 @@ public static class ProjectAutoFixer
         {
             Debug.Log("[ProjectAutoFixer] Starting automated repair and scale normalization...");
 
+            PBRAndEnvironmentUpgrader.UpgradeMaterialsAndTerrain();
             FixCavalryAnimator();
             FixDeerAnimator();
             FixVillagerAnimator();
@@ -425,15 +426,7 @@ public static class ProjectAutoFixer
                 if (buildingName == "Wall")
                 {
                     Transform wv = root.transform.Find("WallVisual");
-                    if (wv != null) { UnityEngine.Object.DestroyImmediate(wv.gameObject); modified = true; }
-                    if (EnsureChild3DModel(root, "Assets/Models/Buildings/Wall.fbx", "Wall"))
-                        modified = true;
-                }
-
-                if (buildingName == "Market")
-                {
-                    if (EnsureChild3DModel(root, "Assets/Models/Buildings/Market.fbx", "Market"))
-                        modified = true;
+                    if (wv != null) { UnityEngine.Object.DestroyImmediate(wv.gameObject, true); modified = true; }
                 }
 
                 if (modified)
@@ -645,9 +638,7 @@ public static class ProjectAutoFixer
                 if (prefabPath.EndsWith("GoldMine.prefab", StringComparison.OrdinalIgnoreCase))
                 {
                     Transform gmv = root.transform.Find("GoldMineVisual");
-                    if (gmv != null) { UnityEngine.Object.DestroyImmediate(gmv.gameObject); modified = true; }
-                    if (EnsureChild3DModel(root, "Assets/Models/Buildings/GoldMine.fbx", "GoldMineModel"))
-                        modified = true;
+                    if (gmv != null) { UnityEngine.Object.DestroyImmediate(gmv.gameObject, true); modified = true; }
                 }
 
                 ResourceNode rn = root.GetComponent<ResourceNode>();
@@ -753,8 +744,6 @@ public static class ProjectAutoFixer
 
         try
         {
-            bool modified = false;
-
             root.transform.localPosition = Vector3.zero;
             root.transform.localRotation = Quaternion.identity;
             root.transform.localScale = Vector3.one;
@@ -763,20 +752,17 @@ public static class ProjectAutoFixer
             if (setup == null)
             {
                 root.AddComponent<FlagPrefabSetup>();
-                modified = true;
             }
 
             foreach (var c in root.GetComponents<Collider>())
             {
                 UnityEngine.Object.DestroyImmediate(c);
-                modified = true;
             }
 
             var rootRend = root.GetComponent<MeshRenderer>();
             if (rootRend != null && rootRend.enabled)
             {
                 rootRend.enabled = false;
-                modified = true;
             }
 
             // Ensure Pole child
@@ -789,14 +775,12 @@ public static class ProjectAutoFixer
                 var coll = poleObj.GetComponent<Collider>();
                 if (coll != null) UnityEngine.Object.DestroyImmediate(coll);
                 pole = poleObj.transform;
-                modified = true;
             }
             else
             {
                 foreach (var c in pole.GetComponents<Collider>())
                 {
                     UnityEngine.Object.DestroyImmediate(c);
-                    modified = true;
                 }
             }
 
@@ -815,14 +799,12 @@ public static class ProjectAutoFixer
                 var coll = headObj.GetComponent<Collider>();
                 if (coll != null) UnityEngine.Object.DestroyImmediate(coll);
                 flagHead = headObj.transform;
-                modified = true;
             }
             else
             {
                 foreach (var c in flagHead.GetComponents<Collider>())
                 {
                     UnityEngine.Object.DestroyImmediate(c);
-                    modified = true;
                 }
             }
 
@@ -891,6 +873,7 @@ public static class ProjectAutoFixer
             Transform visualChild = FindVisualChild(root);
             if (visualChild != null)
             {
+                visualChild.localRotation = Quaternion.identity;
                 Bounds currentB = GetChildRenderersBounds(visualChild);
                 if (currentB.size.y > 0.001f)
                 {
@@ -1032,6 +1015,7 @@ public static class ProjectAutoFixer
             Transform visualChild = FindVisualChild(root);
             if (visualChild != null)
             {
+                visualChild.localRotation = Quaternion.identity;
                 Bounds currentB = GetChildRenderersBounds(visualChild);
                 float curHoriz = Mathf.Max(currentB.size.x, currentB.size.z);
                 float factorY = currentB.size.y > 0.001f ? (targetHeight / currentB.size.y) : 1f;
@@ -1101,6 +1085,7 @@ public static class ProjectAutoFixer
             Transform visualChild = FindVisualChild(root);
             if (visualChild != null)
             {
+                visualChild.localRotation = Quaternion.identity;
                 Bounds currentB = GetChildRenderersBounds(visualChild);
                 if (currentB.size.y > 0.001f)
                 {
@@ -1155,6 +1140,7 @@ public static class ProjectAutoFixer
             Transform visualChild = FindVisualChild(root);
             if (visualChild != null)
             {
+                visualChild.localRotation = Quaternion.identity;
                 Bounds currentB = GetChildRenderersBounds(visualChild);
                 float curHoriz = Mathf.Max(currentB.size.x, currentB.size.z);
                 float factorHoriz = curHoriz > 0.001f ? (targetMaxHoriz / curHoriz) : 1f;
@@ -1207,45 +1193,26 @@ public static class ProjectAutoFixer
             Transform visualChild = FindVisualChild(root);
             if (visualChild != null)
             {
-                if (prefabPath.EndsWith("Wall.prefab", StringComparison.OrdinalIgnoreCase))
-                {
-                    visualChild.localRotation = Quaternion.Euler(-90, 0, 0);
-                    Bounds curB = GetChildRenderersBounds(visualChild);
-                    float factorX = curB.size.x > 0.001f ? (2.2f / curB.size.x) : 1f;
-                    float factorH = curB.size.y > 0.001f ? (2.2f / curB.size.y) : 1f;
-                    // For -90 X rotation: local X is world X, local Z is world Y
-                    visualChild.localScale = new Vector3(visualChild.localScale.x * factorX, visualChild.localScale.y * factorX, visualChild.localScale.z * factorH);
-                }
-                else if (prefabPath.EndsWith("Tower.prefab", StringComparison.OrdinalIgnoreCase))
-                {
-                    Bounds curB = GetChildRenderersBounds(visualChild);
-                    float factorX = curB.size.x > 0.001f ? (2.0f / curB.size.x) : 1f;
-                    float factorZ = curB.size.z > 0.001f ? (2.0f / curB.size.z) : 1f;
-                    float factorH = curB.size.y > 0.001f ? (4.0f / curB.size.y) : 1f;
-                    // Child has -90 X rotation where local X = world X, local Y = world Z, local Z = world Y
-                    visualChild.localScale = new Vector3(visualChild.localScale.x * factorX, visualChild.localScale.y * factorZ, visualChild.localScale.z * factorH);
-                }
-                else
-                {
-                    Bounds currentB = GetChildRenderersBounds(visualChild);
-                    float curHoriz = Mathf.Max(currentB.size.x, currentB.size.z);
+                visualChild.localRotation = Quaternion.identity;
 
-                    if (targetMaxHoriz > 0f && targetHeight > 0f)
-                    {
-                        float factorHoriz = curHoriz > 0.001f ? (targetMaxHoriz / curHoriz) : 1f;
-                        float factorY = currentB.size.y > 0.001f ? (targetHeight / currentB.size.y) : 1f;
-                        visualChild.localScale = new Vector3(visualChild.localScale.x * factorHoriz, visualChild.localScale.y * factorY, visualChild.localScale.z * factorHoriz);
-                    }
-                    else if (targetHeight > 0f && currentB.size.y > 0.001f)
-                    {
-                        float factor = targetHeight / currentB.size.y;
-                        visualChild.localScale *= factor;
-                    }
-                    else if (targetMaxHoriz > 0f && curHoriz > 0.001f)
-                    {
-                        float factor = targetMaxHoriz / curHoriz;
-                        visualChild.localScale *= factor;
-                    }
+                Bounds currentB = GetChildRenderersBounds(visualChild);
+                float curHoriz = Mathf.Max(currentB.size.x, currentB.size.z);
+
+                if (targetMaxHoriz > 0f && targetHeight > 0f)
+                {
+                    float factorHoriz = curHoriz > 0.001f ? (targetMaxHoriz / curHoriz) : 1f;
+                    float factorY = currentB.size.y > 0.001f ? (targetHeight / currentB.size.y) : 1f;
+                    visualChild.localScale = new Vector3(visualChild.localScale.x * factorHoriz, visualChild.localScale.y * factorY, visualChild.localScale.z * factorHoriz);
+                }
+                else if (targetHeight > 0f && currentB.size.y > 0.001f)
+                {
+                    float factor = targetHeight / currentB.size.y;
+                    visualChild.localScale *= factor;
+                }
+                else if (targetMaxHoriz > 0f && curHoriz > 0.001f)
+                {
+                    float factor = targetMaxHoriz / curHoriz;
+                    visualChild.localScale *= factor;
                 }
 
                 Bounds newB = GetChildRenderersBounds(visualChild);
