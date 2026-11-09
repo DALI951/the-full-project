@@ -33,7 +33,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 3812407316526736949}
+  - {fileID: 2307416005003338932}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!65 &7596875780407828916
@@ -74,7 +74,7 @@ MonoBehaviour:
   maxHealth: 50
   totalAmount: 150
   maxGatherers: 8
-  visualRoot: {fileID: 4585707779789782159}
+  visualRoot: {fileID: 3120508613562875406}
 --- !u!208 &2654563475042359908
 NavMeshObstacle:
   m_ObjectHideFlags: 0
@@ -108,7 +108,7 @@ MonoBehaviour:
   serverOnly: 0
   visibility: 0
   hasSpawned: 0
---- !u!1001 &3702765093924127198
+--- !u!1001 &2850549714879447903
 PrefabInstance:
   m_ObjectHideFlags: 0
   serializedVersion: 2
@@ -205,13 +205,13 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 407a99666a689684c8b9001bc727d446, type: 3}
---- !u!4 &3812407316526736949 stripped
+--- !u!4 &2307416005003338932 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 407a99666a689684c8b9001bc727d446, type: 3}
-  m_PrefabInstance: {fileID: 3702765093924127198}
+  m_PrefabInstance: {fileID: 2850549714879447903}
   m_PrefabAsset: {fileID: 0}
---- !u!1 &4585707779789782159 stripped
+--- !u!1 &3120508613562875406 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: 407a99666a689684c8b9001bc727d446, type: 3}
-  m_PrefabInstance: {fileID: 3702765093924127198}
+  m_PrefabInstance: {fileID: 2850549714879447903}
   m_PrefabAsset: {fileID: 0}

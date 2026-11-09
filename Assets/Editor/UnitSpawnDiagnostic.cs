@@ -93,6 +93,23 @@ public static class UnitSpawnDiagnostic
             }
         }
 
+        // Tree positions relative to center (standing near the Lumber Mill)
+        var treeList = new (string prefab, Vector3 relPos, float rotY)[]
+        {
+            ("Assets/Prefabs/Tree.prefab", new Vector3(7.2f, 0f, 6.2f), 15f),
+            ("Assets/Prefabs/Tree.prefab", new Vector3(7.8f, 0f, 4.2f), 45f)
+        };
+
+        foreach (var (pPath, relPos, rotY) in treeList)
+        {
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(pPath);
+            if (prefab == null) continue;
+            Vector3 pos = center + relPos;
+            pos.y = 0f;
+            GameObject inst = Object.Instantiate(prefab, pos, Quaternion.Euler(0f, rotY, 0f), holder.transform);
+            inst.name = $"SHOWCASE_{prefab.name}";
+        }
+
         // Camera setup for optimal isometric overview
         Camera cam = Camera.main;
         if (cam == null)
@@ -120,6 +137,35 @@ public static class UnitSpawnDiagnostic
             buildingsSpawned = buildingList.Length,
             unitsSpawned = unitList.Length
         });
+    }
+
+    public static string InspectTree()
+    {
+        GameObject treePrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Tree.prefab");
+        GameObject treeFbx = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/ressources/tree/tree.fbx");
+        var sb = new StringBuilder();
+
+        sb.AppendLine("=== TREE FBX ===");
+        if (treeFbx != null)
+        {
+            foreach (var r in treeFbx.GetComponentsInChildren<Renderer>(true))
+            {
+                var mf = r.GetComponent<MeshFilter>();
+                sb.AppendLine($"FBX Child: {r.name}, pos: {r.transform.localPosition}, rot: {r.transform.localEulerAngles}, bounds: {r.bounds.size}, meshBounds: {(mf != null ? mf.sharedMesh.bounds.ToString() : "no mf")}");
+            }
+        }
+
+        sb.AppendLine("=== TREE PREFAB ===");
+        if (treePrefab != null)
+        {
+            foreach (var r in treePrefab.GetComponentsInChildren<Renderer>(true))
+            {
+                var mf = r.GetComponent<MeshFilter>();
+                sb.AppendLine($"Prefab Child: {r.name}, pos: {r.transform.localPosition}, rot: {r.transform.localEulerAngles}, scale: {r.transform.localScale}, bounds: {r.bounds.size}, meshBounds: {(mf != null ? mf.sharedMesh.bounds.ToString() : "no mf")}");
+            }
+        }
+
+        return sb.ToString();
     }
 
     public static string RunDiagnosis()

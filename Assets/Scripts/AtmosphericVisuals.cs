@@ -30,6 +30,10 @@ public class AtmosphericVisuals : MonoBehaviour
     private Vector3[] basePositions;
     private Quaternion[] baseRotations;
     private Vector3[] baseScales;
+    private Vector4[] colorArray;
+    private Matrix4x4[] visibleMatrices;
+    private Vector4[] visibleColors;
+    private MaterialPropertyBlock visiblePropertyBlock;
     private int tuftCount = 0;
     private bool grassInitialized = false;
 
@@ -253,7 +257,7 @@ public class AtmosphericVisuals : MonoBehaviour
         baseRotations = new Quaternion[tuftCount];
         baseScales = new Vector3[tuftCount];
 
-        Vector4[] colorArray = new Vector4[tuftCount];
+        colorArray = new Vector4[tuftCount];
         grassPropertyBlock = new MaterialPropertyBlock();
 
         Terrain terrain = Terrain.activeTerrain;
@@ -453,29 +457,50 @@ public class AtmosphericVisuals : MonoBehaviour
         if (!grassInitialized || tuftCount <= 0 || grassMesh == null || grassMaterial == null)
             return;
 
-        // Dynamic wind sway ripple across the meadow
+        if (visibleMatrices == null || visibleMatrices.Length != MaxTuftInstances)
+        {
+            visibleMatrices = new Matrix4x4[MaxTuftInstances];
+            visibleColors = new Vector4[MaxTuftInstances];
+            visiblePropertyBlock = new MaterialPropertyBlock();
+        }
+
+        FogOfWar fow = FogOfWar.Instance;
         float time = Time.time * 2.2f;
+        int visibleCount = 0;
+
         for (int i = 0; i < tuftCount; i++)
         {
             Vector3 pos = basePositions[i];
+
+            // Filter out grass tufts in unexplored black fog shroud
+            if (fow != null && !fow.IsExplored(pos))
+            {
+                continue;
+            }
+
             float windAngle = Mathf.Sin(time + pos.x * 0.32f + pos.z * 0.24f) * 0.08f;
             float gustAngle = Mathf.Cos(time * 0.85f + pos.x * 0.14f) * 0.04f;
 
             Quaternion sway = baseRotations[i] * Quaternion.Euler(windAngle * 57.3f, 0f, gustAngle * 57.3f);
-            instancedMatrices[i].SetTRS(pos, sway, baseScales[i]);
+            visibleMatrices[visibleCount] = Matrix4x4.TRS(pos, sway, baseScales[i]);
+            visibleColors[visibleCount] = (colorArray != null && i < colorArray.Length) ? colorArray[i] : new Vector4(0.42f, 0.68f, 0.22f, 1f);
+            visibleCount++;
         }
 
-        // Single GPU Draw Call for all tufts! Zero GameObjects, zero colliders!
-        Graphics.DrawMeshInstanced(
-            grassMesh,
-            0,
-            grassMaterial,
-            instancedMatrices,
-            tuftCount,
-            grassPropertyBlock,
-            ShadowCastingMode.Off,
-            true
-        );
+        if (visibleCount > 0)
+        {
+            visiblePropertyBlock.SetVectorArray("_Color", visibleColors);
+            Graphics.DrawMeshInstanced(
+                grassMesh,
+                0,
+                grassMaterial,
+                visibleMatrices,
+                visibleCount,
+                visiblePropertyBlock,
+                ShadowCastingMode.Off,
+                true
+            );
+        }
     }
 
     private void OnDestroy()

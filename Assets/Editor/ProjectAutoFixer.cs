@@ -1085,7 +1085,7 @@ public static class ProjectAutoFixer
             Transform visualChild = FindVisualChild(root);
             if (visualChild != null)
             {
-                visualChild.localRotation = Quaternion.identity;
+                visualChild.localRotation = Quaternion.Euler(-90f, 0f, 0f);
                 Bounds currentB = GetChildRenderersBounds(visualChild);
                 if (currentB.size.y > 0.001f)
                 {
