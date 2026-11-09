@@ -7,8 +7,6 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
 {
     public static MinimapSystem Instance { get; private set; }
 
-    
-
     [Header("Camera")]
     [SerializeField] private Camera mainCamera;
 
@@ -28,11 +26,6 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
     private RectTransform minimapRect;
     private Dictionary<Transform, RectTransform> dots = new Dictionary<Transform, RectTransform>();
 
-    // What each dot represents, resolved once at Track time.
-    // LateUpdate used to call GetComponent<ResourceNode>() + GetComponent<Unit>()
-    // on EVERY tracked dot EVERY frame (2 lookups x ~300 dots x 60fps = 36k
-    // component lookups per second). The component reference is now cached
-    // alongside the dot, so the hot loop does zero lookups.
     private enum DotKind : byte { Resource = 1, Unit = 2, Building = 3 }
 
     private struct DotEntry
@@ -55,13 +48,14 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
         new Vector3(0f, 1f, 0f), // top-left
     };
 
-    // Viewport-rect dirty tracking: the rect is a pure function of the main camera
-    // frustum, so it only needs recomputing when that camera actually changes.
+    // Viewport-rect dirty tracking
     private Vector3? _lastViewportCamPos;
     private Vector3 _lastViewportCamRot;
     private float   _lastViewportAspect;
 
     private RectTransform   vpContainer;
+    private bool isDraggingMinimapCam = false;
+    private int lastCommandFrame = -1;
 
     private void Awake()
     {
@@ -74,14 +68,175 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
         if (graphic == null)
         {
             graphic = gameObject.AddComponent<Image>();
-            ((Image)graphic).color = new Color(0, 0, 0, 0);
+            ((Image)graphic).color = new Color(0, 0, 0, 0.01f);
         }
         graphic.raycastTarget = true;
+
+        RegisterWithSelectionManager();
     }
 
     private void Start()
     {
+        RegisterWithSelectionManager();
         ScanExisting();
+    }
+
+    private void RegisterWithSelectionManager()
+    {
+        if (minimapRect != null)
+        {
+            SelectionManager.RegisterBlockingPanel(minimapRect);
+            if (minimapRect.parent is RectTransform parentRt)
+            {
+                SelectionManager.RegisterBlockingPanel(parentRt);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Checks whether the screen mouse position is over the minimap or its immediate 6px boundary padding.
+    /// </summary>
+    public bool IsPointerOverMinimap()
+    {
+        if (minimapRect == null || !gameObject.activeInHierarchy) return false;
+
+        Canvas canvas = GetComponentInParent<Canvas>();
+        Camera cam = (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay) ? canvas.worldCamera : null;
+
+        if (RectTransformUtility.RectangleContainsScreenPoint(minimapRect, Input.mousePosition, cam))
+            return true;
+
+        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(minimapRect, Input.mousePosition, cam, out Vector2 local))
+        {
+            Rect r = minimapRect.rect;
+            r.xMin -= 6f;
+            r.xMax += 6f;
+            r.yMin -= 6f;
+            r.yMax += 6f;
+            if (r.Contains(local))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Converts a screen point to normalized (0..1, 0..1) coordinates across the minimap rectangle.
+    /// Clamps edge clicks so border clicks map cleanly to the world edge.
+    /// </summary>
+    public bool TryGetNormalized(Vector2 screenPoint, out Vector2 norm)
+    {
+        norm = Vector2.zero;
+        if (minimapRect == null) return false;
+
+        Canvas canvas = GetComponentInParent<Canvas>();
+        Camera cam = (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay) ? canvas.worldCamera : null;
+
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(minimapRect, screenPoint, cam, out Vector2 local))
+            return false;
+
+        Rect rect = minimapRect.rect;
+        if (rect.width <= 0f || rect.height <= 0f) return false;
+
+        // Allow 6px padding around the rect
+        if (local.x < rect.xMin - 6f || local.x > rect.xMax + 6f ||
+            local.y < rect.yMin - 6f || local.y > rect.yMax + 6f)
+            return false;
+
+        float normX = Mathf.Clamp01((local.x - rect.xMin) / rect.width);
+        float normY = Mathf.Clamp01((local.y - rect.yMin) / rect.height);
+        norm = new Vector2(normX, normY);
+        return true;
+    }
+
+    public bool TryGetNormalized(out Vector2 norm)
+    {
+        return TryGetNormalized(Input.mousePosition, out norm);
+    }
+
+    /// <summary>
+    /// Maps normalized minimap coordinates (0..1, 0..1) to world X, Z coordinates.
+    /// </summary>
+    public Vector3 MinimapToWorld(Vector2 norm)
+    {
+        float halfSize = MapBoundary.Instance != null ? MapBoundary.Instance.HalfSize : 500f;
+        float worldX = (norm.x * halfSize * 2f) - halfSize;
+        float worldZ = (norm.y * halfSize * 2f) - halfSize;
+        return new Vector3(worldX, 0f, worldZ);
+    }
+
+    private void Update()
+    {
+        // 1. Right-click inside minimap -> Move command to minimap point
+        if (Input.GetMouseButtonDown(1) && IsPointerOverMinimap())
+        {
+            if (TryGetNormalized(Input.mousePosition, out Vector2 norm))
+            {
+                lastCommandFrame = Time.frameCount;
+                CommandMoveToWorld(MinimapToWorld(norm));
+            }
+        }
+
+        // 2. Left-click inside minimap -> Pan camera ground look-at to minimap point
+        bool isUnitDragging = UnitSelectionBox.Instance != null && UnitSelectionBox.Instance.IsDragging;
+
+        if (Input.GetMouseButtonDown(0))
+        {
+            if (!isUnitDragging && IsPointerOverMinimap())
+            {
+                isDraggingMinimapCam = true;
+                if (TryGetNormalized(Input.mousePosition, out Vector2 norm))
+                {
+                    CenterCameraOnWorld(MinimapToWorld(norm));
+                }
+            }
+        }
+        else if (Input.GetMouseButton(0) && isDraggingMinimapCam)
+        {
+            if (TryGetNormalized(Input.mousePosition, out Vector2 norm))
+            {
+                CenterCameraOnWorld(MinimapToWorld(norm));
+            }
+        }
+
+        if (Input.GetMouseButtonUp(0))
+        {
+            isDraggingMinimapCam = false;
+        }
+    }
+
+    public void CenterCameraOnWorld(Vector3 worldPos)
+    {
+        if (mainCamera == null) mainCamera = Camera.main;
+        if (mainCamera == null) return;
+
+        float y = mainCamera.transform.position.y;
+        if (y <= 0.01f) y = 25f;
+
+        Vector3 fwd = mainCamera.transform.forward;
+        Vector3 newPos;
+        if (fwd.y < -0.05f)
+        {
+            float distToGround = y / -fwd.y;
+            newPos = new Vector3(
+                worldPos.x - fwd.x * distToGround,
+                y,
+                worldPos.z - fwd.z * distToGround);
+        }
+        else
+        {
+            newPos = new Vector3(worldPos.x, y, worldPos.z - 15f);
+        }
+
+        if (MapBoundary.Instance != null)
+        {
+            float limit = MapBoundary.Instance.CameraLimit;
+            newPos.x = Mathf.Clamp(newPos.x, -limit, limit);
+            newPos.z = Mathf.Clamp(newPos.z, -limit, limit);
+        }
+
+        RTSCamera.SkipNextFrame = true;
+        mainCamera.transform.position = newPos;
     }
 
     private void ScanExisting()
@@ -182,12 +337,12 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
 
     private Vector3? MinimapLocalToWorld(Vector2 localPos)
     {
-        float halfSize = MapBoundary.Instance != null ? MapBoundary.Instance.HalfSize : 500f;
+        if (minimapRect == null) return null;
         Rect rect = minimapRect.rect;
-        float pctX = localPos.x / rect.width;
-        float pctY = localPos.y / rect.height;
-        if (pctX < 0 || pctX > 1 || pctY < 0 || pctY > 1) return null;
-        return new Vector3((pctX * halfSize * 2f) - halfSize, 0f, (pctY * halfSize * 2f) - halfSize);
+        if (rect.width <= 0f || rect.height <= 0f) return null;
+        float normX = Mathf.Clamp01((localPos.x - rect.xMin) / rect.width);
+        float normY = Mathf.Clamp01((localPos.y - rect.yMin) / rect.height);
+        return MinimapToWorld(new Vector2(normX, normY));
     }
 
     private void LateUpdate()
@@ -207,7 +362,6 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
                 continue;
             }
 
-            // Zero GetComponent calls here: kind + owner were resolved at Track time.
             if (dotKinds.TryGetValue(t, out DotEntry entry))
             {
                 if (entry.Kind == DotKind.Resource)
@@ -250,10 +404,8 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
         UpdateViewportRect();
     }
 
-    // AFTER
     private void CreateViewportOverlay()
     {
-        // RectMask2D container — clips dots and lines to minimap bounds automatically
         GameObject cont = new GameObject("VP_Container", typeof(RectTransform), typeof(RectMask2D));
         cont.transform.SetParent(minimapRect, false);
         vpContainer           = cont.GetComponent<RectTransform>();
@@ -267,7 +419,6 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
 
         for (int i = 0; i < 4; i++)
         {
-            // Corner dot
             GameObject dGO = new GameObject($"VP_Corner{i}", typeof(RectTransform), typeof(Image));
             dGO.transform.SetParent(vpContainer, false);
             vpCornerDots[i]           = dGO.GetComponent<RectTransform>();
@@ -279,7 +430,6 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
             dImg.color         = dotColor;
             dImg.raycastTarget = false;
 
-            // Line from corner i to corner (i+1)%4
             GameObject lGO = new GameObject($"VP_Line{i}", typeof(RectTransform), typeof(Image));
             lGO.transform.SetParent(vpContainer, false);
             vpLines[i]           = lGO.GetComponent<RectTransform>();
@@ -296,10 +446,6 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
     {
         if (mainCamera == null || vpContainer == null) return;
 
-        // The viewport rectangle is derived purely from the MAIN camera frustum, so it
-        // can only change when that camera moves. This used to run 4 physics raycasts
-        // EVERY frame, including the vast majority of frames where the camera is parked
-        // and the result is bit-for-bit identical. Skip the work until it can differ.
         Transform camT = mainCamera.transform;
         if (_lastViewportCamPos.HasValue && _lastViewportCamPos == camT.position &&
             _lastViewportCamRot == camT.eulerAngles && _lastViewportAspect == mainCamera.aspect)
@@ -311,15 +457,11 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
 
         float halfSize = MapBoundary.Instance != null ? MapBoundary.Instance.HalfSize : 500f;
 
-        // REPLACE this block (leave everything else in UpdateViewportRect unchanged)
-        // Uses the cached static `viewportCorners` buffer - this method allocated a
-        // fresh Vector3[4] every frame.
         for (int i = 0; i < 4; i++)
         {
             Ray ray = mainCamera.ViewportPointToRay(viewportCorners[i]);
             Vector3 worldPos;
 
-            // Try to hit actual terrain / ground mesh first
             if (Physics.Raycast(ray, out RaycastHit terrainHit, halfSize * 10f,
                     groundLayerMask, QueryTriggerInteraction.Ignore))
             {
@@ -327,26 +469,21 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
             }
             else if (ray.direction.y < -0.0001f)
             {
-                // Fallback: flat y=0 plane
                 float t = -ray.origin.y / ray.direction.y;
                 worldPos = ray.origin + ray.direction * t;
             }
             else
             {
-                // Ray pointing upward — project to far edge
                 Vector3 flat = new Vector3(ray.direction.x, 0f, ray.direction.z).normalized;
                 worldPos = ray.origin + flat * halfSize * 4f;
             }
 
-            // No clamping — the RectMask2D container clips anything outside
             vpMiniPos[i] = WorldToMinimapLocal(worldPos, false);
         }
 
-        // Place the 4 corner dots
         for (int i = 0; i < 4; i++)
             vpCornerDots[i].anchoredPosition = vpMiniPos[i];
 
-        // Draw lines connecting adjacent corners
         for (int i = 0; i < 4; i++)
         {
             Vector2 a      = vpMiniPos[i];
@@ -363,68 +500,110 @@ public class MinimapSystem : MonoBehaviour, IPointerDownHandler, IPointerClickHa
 
     public void OnPointerDown(PointerEventData eventData)
     {
-        Vector2 local;
-        Camera eventCamera = eventData.pressEventCamera;
-        // Fallback: if overlay canvas, pressEventCamera is null — use null which ScreenPointToLocal handles
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(minimapRect, eventData.position, eventCamera, out local))
-            return;
-
-        Rect rect = minimapRect.rect;
-        if (local.x < 0 || local.x > rect.width || local.y < 0 || local.y > rect.height)
-            return;
-
-        Vector3? world = MinimapLocalToWorld(local);
-        if (!world.HasValue) return;
-
         if (eventData.button == PointerEventData.InputButton.Left)
         {
-            if (mainCamera == null) mainCamera = Camera.main;
-            Vector3 target = world.Value;
-            target.y = mainCamera != null ? mainCamera.transform.position.y : 30f;
-            if (MapBoundary.Instance != null)
+            if (TryGetNormalized(eventData.position, out Vector2 norm))
             {
-                float limit = MapBoundary.Instance.CameraLimit;
-                target.x = Mathf.Clamp(target.x, -limit, limit);
-                target.z = Mathf.Clamp(target.z, -limit, limit);
+                CenterCameraOnWorld(MinimapToWorld(norm));
             }
-
-            RTSCamera.SkipNextFrame = true;
-            if (mainCamera != null)
-                mainCamera.transform.position = target;
         }
         else if (eventData.button == PointerEventData.InputButton.Right)
         {
-            var selected = SelectionManager.Instance?.SelectedUnits;
-            if (selected == null || selected.Count == 0) return;
+            if (Time.frameCount != lastCommandFrame)
+            {
+                if (TryGetNormalized(eventData.position, out Vector2 norm))
+                {
+                    lastCommandFrame = Time.frameCount;
+                    CommandMoveToWorld(MinimapToWorld(norm));
+                }
+            }
+        }
+    }
 
-            bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+    public void CommandMoveToWorld(Vector3 worldPos)
+    {
+        var selected = SelectionManager.Instance != null ? SelectionManager.Instance.GetSelectedUnits() : null;
+        if (selected == null || selected.Count == 0) return;
+
+        // Sample ground height
+        Vector3 target = worldPos;
+        if (Physics.Raycast(new Vector3(worldPos.x, 200f, worldPos.z), Vector3.down, out RaycastHit gHit, 400f, groundLayerMask, QueryTriggerInteraction.Ignore))
+        {
+            target.y = gHit.point.y;
+        }
+        else if (UnityEngine.AI.NavMesh.SamplePosition(target, out UnityEngine.AI.NavMeshHit navHit, 20f, UnityEngine.AI.NavMesh.AllAreas))
+        {
+            target.y = navHit.position.y;
+        }
+
+        if (MapBoundary.Instance != null)
+            target = MapBoundary.Instance.Clamp(target);
+
+        bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+
+        if (NetworkedPlayer.LocalInstance != null)
+        {
+            if (SelectionManager.Instance != null)
+            {
+                SelectionManager.Instance.CalculateFormationPositions(target, out uint[] formIds, out Vector3[] positions);
+                if (formIds.Length > 0)
+                {
+                    NetworkedPlayer.LocalInstance.CmdMoveUnitsFormation(formIds, positions, shift);
+                }
+                else
+                {
+                    var ids = new List<uint>();
+                    for (int i = 0; i < selected.Count; i++)
+                        if (selected[i] != null && selected[i].OwnerPlayerId == PlayerColorManager.LocalPlayerIndex)
+                            ids.Add(selected[i].netId);
+                    if (ids.Count > 0)
+                        NetworkedPlayer.LocalInstance.CmdMoveUnits(ids.ToArray(), target);
+                }
+            }
+            else
+            {
+                var ids = new List<uint>();
+                for (int i = 0; i < selected.Count; i++)
+                    if (selected[i] != null && selected[i].OwnerPlayerId == PlayerColorManager.LocalPlayerIndex)
+                        ids.Add(selected[i].netId);
+                if (ids.Count > 0)
+                    NetworkedPlayer.LocalInstance.CmdMoveUnits(ids.ToArray(), target);
+            }
 
             if (shift)
-                SelectionManager.Instance?.AddFormationWaypoints(world.Value);
+            {
+                MoveFlag.Instance?.ShowFlag(target, true);
+            }
+            else
+            {
+                MoveFlag.Instance?.ClearAllFlags();
+                MoveFlag.Instance?.ShowFlag(target, false);
+            }
+        }
+        else
+        {
+            if (shift)
+            {
+                SelectionManager.Instance?.AddFormationWaypoints(target);
+                MoveFlag.Instance?.ShowFlag(target, true);
+            }
             else
             {
                 foreach (Unit u in selected)
                     if (u != null) u.ClearWaypoints();
 
                 MoveFlag.Instance?.ClearAllFlags();
-                MoveFlag.Instance?.ShowFlag(world.Value, false);
-                SelectionManager.Instance?.AssignFormationWaypoints(world.Value);
+                MoveFlag.Instance?.ShowFlag(target, false);
+                SelectionManager.Instance?.AssignFormationWaypoints(target);
             }
         }
     }
 
     public void OnPointerClick(PointerEventData eventData)
     {
-        // Right-click handled in OnPointerDown — stub required for IPointerClickHandler interface
+        // Handled in Update / OnPointerDown
     }
 
-    /// <summary>
-    /// Clears the static Instance when this object dies.
-    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
-    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
-    /// dispatch into this dead object and throw MissingReferenceException the next
-    /// time the scene reloads. Clearing the field makes it a true null.
-    /// </summary>
     private void OnDestroy()
     {
         if (Instance == this) Instance = null;

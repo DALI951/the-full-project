@@ -59,6 +59,10 @@ public class UIClickDebugger : MonoBehaviour
         {
             if (img.raycastTarget && img.color.a < 0.01f)
             {
+                // Never disable raycastTarget on minimap or registered blocking panels
+                if (IsRegisteredBlocker(img.transform) || img.GetComponentInParent<MinimapSystem>() != null)
+                    continue;
+
                 img.raycastTarget = false;
                 Debug.Log($"[UIClickDebugger] patched zero-alpha Image → {Path(img.transform)}");
             }
@@ -69,6 +73,9 @@ public class UIClickDebugger : MonoBehaviour
         {
             if (cg.blocksRaycasts && cg.alpha < 0.01f)
             {
+                if (IsRegisteredBlocker(cg.transform) || cg.GetComponentInParent<MinimapSystem>() != null)
+                    continue;
+
                 cg.blocksRaycasts = false;
                 Debug.Log($"[UIClickDebugger] patched zero-alpha CanvasGroup → {Path(cg.transform)}");
             }

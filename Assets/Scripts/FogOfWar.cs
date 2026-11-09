@@ -9,32 +9,36 @@ public class FogOfWar : MonoBehaviour
 
     [Header("World-Space Rendering")]
     [SerializeField] private MeshRenderer fogPlaneRenderer;
+    [SerializeField] private float fogHeight = 0.06f;
     private float mapHalfSize = 23f;
+
+    [Header("Resolution")]
+    [SerializeField] private int textureResolution = 256;
     private int resolution = 256;
 
+    [Header("Starting Vision")]
+    [SerializeField] private float initialRevealRadius = 22f;
+
     [Header("Colors")]
-    [SerializeField] private Color unexploredColor = new Color(0.02f, 0.02f, 0.05f, 1f);
-    [SerializeField] private Color exploredColor   = new Color(0.15f, 0.12f, 0.08f, 0.50f);
+    [SerializeField] private Color unexploredColor = new Color(0.02f, 0.03f, 0.05f, 0.96f);
+    [SerializeField] private Color exploredColor   = new Color(0.04f, 0.06f, 0.10f, 0.42f);
     [SerializeField] private Color visibleColor    = new Color(0f, 0f, 0f, 0f);
 
     // Runtime
     // Cells currently in state 2 ("visible"). Tracking them in a list means
-    // Update() touches only the handful of cells the fog-revealers actually
-    // cover, instead of walking all 256x256 = 65,536 cells every single frame.
+    // Update() touches only the cells the fog-revealers actually cover.
     private readonly List<int> visibleCells = new List<int>();
 
     private Texture2D fogTexture;
     private byte[]    cellState;
     private Color[]   pixels;
 
-    // Set to 1 by Reveal() for the current frame. Update() only demotes a cell
-    // to "explored" if nothing re-revealed it, so a cell continuously covered by
-    // a FogRevealer stops flipping visible->explored->visible 60 times a second.
-    // Without this the fog texture was re-uploaded every single frame forever.
+    // Set to 1 by Reveal() for the current frame.
+    // Update() demotes a cell to "explored" only if it was NOT refreshed (freshThisFrame == 0).
+    // Cells that WERE refreshed remain in visibleCells, and freshThisFrame is reset to 0 for next frame.
     private byte[]    freshThisFrame;
 
-    // Dirty rectangle: set only when a pixel's colour actually changes, so
-    // LateUpdate can skip the texture upload entirely on quiet frames.
+    // Dirty rectangle tracking to minimize texture uploads
     private int dirtyMinX = int.MaxValue, dirtyMaxX = int.MinValue;
     private int dirtyMinY = int.MaxValue, dirtyMaxY = int.MinValue;
 
@@ -56,6 +60,21 @@ public class FogOfWar : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
 
+        if (fogHeight > 0.15f) fogHeight = 0.06f;
+
+        // Auto-fix explored color if old black / high-opacity preset was serialized in scene
+        if (exploredColor.a > 0.45f || (exploredColor.r == 0f && exploredColor.g == 0f && exploredColor.b == 0f))
+            exploredColor = new Color(0.04f, 0.06f, 0.10f, 0.42f);
+
+        if (unexploredColor.r == 0f && unexploredColor.g == 0f && unexploredColor.b == 0f)
+            unexploredColor = new Color(0.02f, 0.03f, 0.05f, 0.96f);
+
+        // AoE4 Golden-Hour ambient atmosphere
+        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
+        RenderSettings.ambientSkyColor = new Color(0.68f, 0.74f, 0.85f);
+        RenderSettings.ambientEquatorColor = new Color(0.55f, 0.52f, 0.45f);
+        RenderSettings.ambientGroundColor = new Color(0.32f, 0.30f, 0.25f);
+
         if (MapBoundary.Instance != null)
             mapHalfSize = MapBoundary.Instance.HalfSize;
 
@@ -68,15 +87,20 @@ public class FogOfWar : MonoBehaviour
 
         fogMaterial = fogPlaneRenderer.material;
 
+        if (textureResolution < 256) textureResolution = 256;
+        resolution = textureResolution;
+
+        if (initialRevealRadius < 22f) initialRevealRadius = 22f;
+
         float usableRatio = (float)(resolution - 2 * FOG_BORDER) / resolution;
         fogMaterial.SetFloat("_MapHalfSize", mapHalfSize / usableRatio);
 
         fogTexture = new Texture2D(resolution, resolution, TextureFormat.RGBA32, false);
         fogTexture.filterMode = FilterMode.Bilinear;
         fogTexture.wrapMode   = TextureWrapMode.Clamp;
-        cellState = new byte[resolution * resolution];
+        cellState      = new byte[resolution * resolution];
         freshThisFrame = new byte[resolution * resolution];
-        pixels    = new Color[resolution * resolution];
+        pixels         = new Color[resolution * resolution];
 
         for (int i = 0; i < pixels.Length; i++)
             pixels[i] = unexploredColor;
@@ -84,40 +108,39 @@ public class FogOfWar : MonoBehaviour
         fogTexture.SetPixels(pixels);
         fogTexture.Apply();
         fogMaterial.SetTexture("_FogTex", fogTexture);
-        fogMaterial.renderQueue = 4000;
+        fogMaterial.renderQueue = 3000;
         fogMaterial.SetInt("_ZWrite", 0);
-        fogMaterial.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
+        fogMaterial.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.LessEqual);
+
+        ElevateFogPlaneAboveTerrain();
     }
 
     private void Start()
     {
         ElevateFogPlaneAboveTerrain();
 
-        float revealRadius = Mathf.Clamp(mapHalfSize * 0.04f, 8f, 20f);
-
         Vector3 revealCenter = Vector3.zero;
         SpawnAreaManager area = FindObjectOfType<SpawnAreaManager>();
         if (area != null)
             revealCenter = area.GetSpawnPosition(PlayerColorManager.LocalPlayerIndex);
 
-        Debug.Log($"[FogOfWar] Starting reveal radius: {revealRadius:F1} at {revealCenter}");
+        Debug.Log($"[FogOfWar] Starting reveal radius: {initialRevealRadius:F1} at {revealCenter}");
 
-        // Pure network clients (joiners) skip the initial reveal here.
-        // Their correct spawn position is revealed by RevealForPlayer()
-        // called from NetworkedPlayer.TargetSetLocalPlayerIndex().
-        // Without this guard, joiners would reveal spawn 0 (host's base) by default.
+        // Pure network clients (joiners) skip initial reveal here;
+        // their correct spawn position is revealed by RevealForPlayer()
+        // via NetworkedPlayer.TargetSetLocalPlayerIndex().
         bool isPureClient = NetworkClient.active && !NetworkServer.active;
         if (!isPureClient)
-            Reveal(revealCenter, revealRadius);
+            Reveal(revealCenter, initialRevealRadius);
     }
 
     public void RevealForPlayer(int playerIndex)
     {
-        float revealRadius = Mathf.Clamp(mapHalfSize * 0.04f, 8f, 20f);
+        if (initialRevealRadius < 22f) initialRevealRadius = 22f;
         Vector3 center = Vector3.zero;
         SpawnAreaManager area = FindObjectOfType<SpawnAreaManager>();
         if (area != null) center = area.GetSpawnPosition(playerIndex);
-        Reveal(center, revealRadius);
+        Reveal(center, initialRevealRadius);
     }
 
     private void ElevateFogPlaneAboveTerrain()
@@ -135,35 +158,37 @@ public class FogOfWar : MonoBehaviour
                 baseY = hit.point.y;
         }
 
-        fogPlaneRenderer.transform.position = new Vector3(0f, baseY + 0.5f, 0f);
+        fogPlaneRenderer.transform.position = new Vector3(0f, baseY + fogHeight, 0f);
 
         float targetWorldSize = mapHalfSize * 8f;
         fogPlaneRenderer.transform.localScale =
             new Vector3(targetWorldSize / 10f, 1f, targetWorldSize / 10f);
 
-        Debug.Log($"[FogOfWar] Fog plane at y={baseY + 0.5f:F1}, covers ±{targetWorldSize/2f} units");
+        Debug.Log($"[FogOfWar] Fog plane at y={baseY + fogHeight:F2}, covers ±{targetWorldSize / 2f} units");
     }
-
 
     private void Update()
     {
-        // Demote only the cells that are currently "visible" instead of scanning
-        // the entire cellState array (65,536 entries) every frame.
+        // Demote cells that were visible (state 2) but NOT refreshed this frame back to explored (state 1)
         if (visibleCells.Count == 0) return;
 
         for (int i = visibleCells.Count - 1; i >= 0; i--)
         {
             int idx = visibleCells[i];
-            // Nobody re-revealed this cell since the last Update -> it is now out
-            // of sight, so drop it back to "explored" and repaint that pixel.
-            if (cellState[idx] == 2 && freshThisFrame[idx] == 0)
+
+            if (freshThisFrame[idx] == 0)
             {
+                // Out of sight -> demote to explored and repaint
                 cellState[idx] = 1;
                 pixels[idx]    = exploredColor;
                 MarkDirty(idx % resolution, idx / resolution);
+                visibleCells.RemoveAt(i);
             }
-            freshThisFrame[idx] = 0;
-            visibleCells.RemoveAt(i);
+            else
+            {
+                // Refreshed this frame -> keep in visibleCells, reset freshThisFrame for next frame
+                freshThisFrame[idx] = 0;
+            }
         }
     }
 
@@ -173,26 +198,48 @@ public class FogOfWar : MonoBehaviour
         int cy = WorldToCell(worldPos.z);
         int usable = resolution - 2 * FOG_BORDER;
         int cr = Mathf.CeilToInt(radiusWorld / (mapHalfSize * 2f) * usable);
+        float crSqr = cr * cr;
+        float fadeStart = cr * 0.85f; // Outer 15% smooth feathering
 
         for (int dy = -cr; dy <= cr; dy++)
         {
             for (int dx = -cr; dx <= cr; dx++)
             {
-                if (dx * dx + dy * dy > cr * cr) continue;
+                float distSqr = dx * dx + dy * dy;
+                if (distSqr > crSqr) continue;
+
                 int px = cx + dx;
                 int py = cy + dy;
                 if (px < 0 || px >= resolution || py < 0 || py >= resolution) continue;
 
                 int idx = py * resolution + px;
                 freshThisFrame[idx] = 1;
+
+                // Calculate smooth feathered color across the outer 15%
+                float dist = Mathf.Sqrt(distSqr);
+                Color cellColor = visibleColor;
+                if (dist > fadeStart)
+                {
+                    float t = Mathf.InverseLerp(fadeStart, cr, dist);
+                    t = Mathf.SmoothStep(0f, 1f, t);
+                    cellColor = Color.Lerp(visibleColor, exploredColor, t);
+                }
+
                 if (cellState[idx] < 2)
                 {
                     cellState[idx] = 2;
                     visibleCells.Add(idx);
-                    // Only repaint on an actual state change; re-revealing a cell
-                    // that is already visible must not queue another upload.
-                    pixels[idx] = visibleColor;
+                    pixels[idx] = cellColor;
                     MarkDirty(px, py);
+                }
+                else
+                {
+                    // If already visible, pick the most transparent (clearest) sample
+                    if (cellColor.a < pixels[idx].a)
+                    {
+                        pixels[idx] = cellColor;
+                        MarkDirty(px, py);
+                    }
                 }
             }
         }
@@ -200,7 +247,7 @@ public class FogOfWar : MonoBehaviour
 
     private void LateUpdate()
     {
-        // Nothing actually changed this frame -> skip the texture upload entirely.
+        // Nothing changed this frame -> skip texture upload entirely
         if (!HasDirtyRect) return;
 
         fogTexture.SetPixels(pixels);
@@ -212,9 +259,9 @@ public class FogOfWar : MonoBehaviour
 
     private int WorldToCell(float worldCoord)
     {
-        float t      = (worldCoord + mapHalfSize) / (mapHalfSize * 2f);
-        int usable   = resolution - 2 * FOG_BORDER;
-        int cell     = Mathf.FloorToInt(t * usable) + FOG_BORDER;
+        float t    = (worldCoord + mapHalfSize) / (mapHalfSize * 2f);
+        int usable = resolution - 2 * FOG_BORDER;
+        int cell   = Mathf.FloorToInt(t * usable) + FOG_BORDER;
         return Mathf.Clamp(cell, FOG_BORDER, resolution - 1 - FOG_BORDER);
     }
 

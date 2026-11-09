@@ -4,7 +4,8 @@ using TMPro;
 
 /// <summary>
 /// Shows build menu when a Villager is selected.
-/// Attach to GameManager. Wire in Inspector.
+/// Upgraded with AoE4-style hotkeys ([Q], [W], [E], [R], [T], [Y], [U]),
+/// hotkey badge displays, and stone wall placement hints.
 /// </summary>
 public class BuildMenuUI : MonoBehaviour
 {
@@ -26,6 +27,12 @@ public class BuildMenuUI : MonoBehaviour
     [Header("Build Buttons (same order as Buildings array)")]
     [SerializeField] private Button[] buildButtons;
 
+    // Hotkey definitions for build actions
+    private static readonly KeyCode[] BUILD_HOTKEYS = new KeyCode[]
+    {
+        KeyCode.Q, KeyCode.W, KeyCode.E, KeyCode.R, KeyCode.T, KeyCode.Y, KeyCode.U, KeyCode.I
+    };
+
     [System.Serializable]
     public class BuildEntry
     {
@@ -42,33 +49,16 @@ public class BuildMenuUI : MonoBehaviour
         public string description = "";
     }
 
-    public static BuildEntry[] AllEntries => Instance != null ? Instance.buildings : null;
-
-    private void Start()
+    private struct ButtonVisualState
     {
-        // Attach click listeners and hover tooltips to build buttons
-        for (int i = 0; i < buildButtons.Length && i < buildings.Length; i++)
-        {
-            if (buildButtons[i] == null) continue;
-            int idx     = i;
-            
-            // Click listener
-            buildButtons[i].onClick.AddListener(() => OnBuildButtonClicked(idx));
-            
-            var trigger = buildButtons[i].gameObject
-                            .AddComponent<UnityEngine.EventSystems.EventTrigger>();
-
-            var enter = new UnityEngine.EventSystems.EventTrigger.Entry
-                { eventID = UnityEngine.EventSystems.EventTriggerType.PointerEnter };
-            enter.callback.AddListener((_) => ShowBuildTooltip(idx));
-            trigger.triggers.Add(enter);
-
-            var exit = new UnityEngine.EventSystems.EventTrigger.Entry
-                { eventID = UnityEngine.EventSystems.EventTriggerType.PointerExit };
-            exit.callback.AddListener((_) => HideBuildTooltip());
-            trigger.triggers.Add(exit);
-        }
+        public Image buttonImage;
+        public Color originalImageColor;
+        public TMP_Text[] texts;
+        public Color[] originalTextColors;
     }
+    private ButtonVisualState[] buttonVisuals;
+
+    public static BuildEntry[] AllEntries => Instance != null ? Instance.buildings : null;
 
     private void Awake()
     {
@@ -80,9 +70,106 @@ public class BuildMenuUI : MonoBehaviour
         SelectionManager.RegisterBlockingPanel(buildPanel?.GetComponent<RectTransform>());
     }
 
+    private void Start()
+    {
+        // Cache visual states and listeners for build buttons
+        if (buildButtons != null && buildButtons.Length > 0)
+        {
+            buttonVisuals = new ButtonVisualState[buildButtons.Length];
+
+            for (int i = 0; i < buildButtons.Length && i < buildings.Length; i++)
+            {
+                if (buildButtons[i] == null) continue;
+                int idx = i;
+
+                buttonVisuals[i].buttonImage = buildButtons[i].GetComponent<Image>();
+                buttonVisuals[i].originalImageColor = buttonVisuals[i].buttonImage != null
+                    ? buttonVisuals[i].buttonImage.color
+                    : Color.white;
+
+                buttonVisuals[i].texts = buildButtons[i].GetComponentsInChildren<TMP_Text>(true);
+
+                // Add AoE4 hotkey badge to button label if available
+                if (i < BUILD_HOTKEYS.Length && buttonVisuals[i].texts != null && buttonVisuals[i].texts.Length > 0)
+                {
+                    TMP_Text label = buttonVisuals[i].texts[0];
+                    if (label != null)
+                    {
+                        string keyStr = $"[{BUILD_HOTKEYS[i]}]";
+                        if (!label.text.Contains(keyStr))
+                        {
+                            label.text = $"<color=#D4AF37><b>{keyStr}</b></color> {label.text}";
+                        }
+                    }
+                }
+
+                if (buttonVisuals[i].texts != null && buttonVisuals[i].texts.Length > 0)
+                {
+                    buttonVisuals[i].originalTextColors = new Color[buttonVisuals[i].texts.Length];
+                    for (int t = 0; t < buttonVisuals[i].texts.Length; t++)
+                    {
+                        if (buttonVisuals[i].texts[t] != null)
+                            buttonVisuals[i].originalTextColors[t] = buttonVisuals[i].texts[t].color;
+                    }
+                }
+
+                // Click listener
+                buildButtons[i].onClick.AddListener(() => OnBuildButtonClicked(idx));
+
+                // Hover tooltips
+                var trigger = buildButtons[i].gameObject
+                                .AddComponent<UnityEngine.EventSystems.EventTrigger>();
+
+                var enter = new UnityEngine.EventSystems.EventTrigger.Entry
+                    { eventID = UnityEngine.EventSystems.EventTriggerType.PointerEnter };
+                enter.callback.AddListener((_) => ShowBuildTooltip(idx));
+                trigger.triggers.Add(enter);
+
+                var exit = new UnityEngine.EventSystems.EventTrigger.Entry
+                    { eventID = UnityEngine.EventSystems.EventTriggerType.PointerExit };
+                exit.callback.AddListener((_) => HideBuildTooltip());
+                trigger.triggers.Add(exit);
+            }
+        }
+    }
+
+    private void Update()
+    {
+        if (buildPanel != null && buildPanel.activeSelf)
+        {
+            UpdateAffordabilityUI();
+            HandleBuildHotkeys();
+        }
+    }
+
+    private void HandleBuildHotkeys()
+    {
+        // Guard against typing in input fields
+        if (UnityEngine.EventSystems.EventSystem.current != null &&
+            UnityEngine.EventSystems.EventSystem.current.currentSelectedGameObject != null &&
+            UnityEngine.EventSystems.EventSystem.current.currentSelectedGameObject.GetComponent<TMP_InputField>() != null)
+        {
+            return;
+        }
+
+        if (buildButtons == null || buildings == null) return;
+
+        for (int i = 0; i < BUILD_HOTKEYS.Length && i < buildButtons.Length && i < buildings.Length; i++)
+        {
+            if (buildButtons[i] == null || !buildButtons[i].gameObject.activeSelf) continue;
+
+            if (Input.GetKeyDown(BUILD_HOTKEYS[i]))
+            {
+                OnBuildButtonClicked(i);
+                break;
+            }
+        }
+    }
+
     public void Show()
     {
         buildPanel?.SetActive(true);
+        UpdateAffordabilityUI();
     }
 
     public void Hide()
@@ -91,36 +178,91 @@ public class BuildMenuUI : MonoBehaviour
         HideBuildTooltip();
     }
 
+    /// <summary>Checks whether local player can afford this building without spending resources.</summary>
+    public bool CanAfford(BuildEntry entry)
+    {
+        if (entry == null) return false;
+
+        if (Mirror.NetworkClient.active && NetworkedPlayer.LocalInstance != null)
+        {
+            return NetworkedPlayer.LocalInstance.Food >= entry.costFood &&
+                   NetworkedPlayer.LocalInstance.Wood >= entry.costWood &&
+                   NetworkedPlayer.LocalInstance.Gold >= entry.costGold;
+        }
+
+        if (ResourceManager.Instance != null)
+        {
+            return ResourceManager.Instance.Food >= entry.costFood &&
+                   ResourceManager.Instance.Wood >= entry.costWood &&
+                   ResourceManager.Instance.Gold >= entry.costGold;
+        }
+
+        return false;
+    }
+
     public void OnBuildButtonClicked(int index)
     {
         if (index < 0 || index >= buildings.Length) return;
         BuildEntry entry = buildings[index];
 
-        if (Mirror.NetworkClient.active && NetworkedPlayer.LocalInstance != null)
+        // Only check affordability — DO NOT spend resources here!
+        if (!CanAfford(entry))
         {
-            // RpcStartPlacing is a ClientRpc: placement mode is local-only state and
-            // the costs it uses come from the local BuildEntry, never from the server.
-            NetworkedPlayer.LocalInstance.RpcStartPlacing(
-                entry.buildingPrefab != null ? entry.buildingPrefab.name : "");
-        }
-        else
-        {
-            if (ResourceManager.Instance == null ||
-                !ResourceManager.Instance.TrySpend(
-                    entry.costFood, entry.costWood, entry.costGold))
-            {
-                Debug.Log("[BuildMenu] Not enough resources.");
-                return;
-            }
-            BuildingPlacer.Instance?.StartPlacing(
-                entry.buildingPrefab,
-                entry.constructionSitePrefab,
-                entry.buildTime,
-                entry.ghostMaterial,
-                entry.costFood, entry.costWood, entry.costGold);
+            Debug.Log($"[BuildMenu] Not enough resources for {entry.buildingName}.");
+            AudioManager.Instance?.PlayUIError();
+            return;
         }
 
+        if (entry.buildingName != null && entry.buildingName.IndexOf("Wall", System.StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            Debug.Log("[BuildMenu] Wall selected: Click & Drag on ground to build a connected Stone Wall line.");
+        }
+
+        BuildingPlacer.Instance?.StartPlacing(
+            entry.buildingPrefab,
+            entry.constructionSitePrefab,
+            entry.buildTime,
+            entry.ghostMaterial,
+            entry.costFood, entry.costWood, entry.costGold);
+
         Hide();
+    }
+
+    /// <summary>Updates button visuals to reflect whether each building can currently be afforded.</summary>
+    private void UpdateAffordabilityUI()
+    {
+        if (buttonVisuals == null || buildings == null) return;
+
+        for (int i = 0; i < buttonVisuals.Length && i < buildings.Length; i++)
+        {
+            if (buildButtons[i] == null) continue;
+
+            bool affordable = CanAfford(buildings[i]);
+
+            // Dim or restore button background image
+            if (buttonVisuals[i].buttonImage != null)
+            {
+                Color orig = buttonVisuals[i].originalImageColor;
+                buttonVisuals[i].buttonImage.color = affordable
+                    ? orig
+                    : new Color(orig.r * 0.5f, orig.g * 0.5f, orig.b * 0.5f, orig.a * 0.65f);
+            }
+
+            // Tint cost / label text red if unaffordable
+            if (buttonVisuals[i].texts != null)
+            {
+                for (int t = 0; t < buttonVisuals[i].texts.Length; t++)
+                {
+                    TMP_Text txt = buttonVisuals[i].texts[t];
+                    if (txt == null) continue;
+                    Color origText = (buttonVisuals[i].originalTextColors != null && t < buttonVisuals[i].originalTextColors.Length)
+                        ? buttonVisuals[i].originalTextColors[t]
+                        : Color.white;
+
+                    txt.color = affordable ? origText : new Color(1f, 0.35f, 0.35f, 0.85f);
+                }
+            }
+        }
     }
 
     // ── Build button tooltip ─────────────────────────────────────────────
@@ -130,16 +272,27 @@ public class BuildMenuUI : MonoBehaviour
         if (index < 0 || index >= buildings.Length || tooltipPanel == null) return;
         BuildEntry e = buildings[index];
 
-        if (tooltipNameText) tooltipNameText.text = e.buildingName;
+        string hotkeyPrefix = (index < BUILD_HOTKEYS.Length) ? $"[{BUILD_HOTKEYS[index]}] " : "";
+        if (tooltipNameText) tooltipNameText.text = $"<color=#D4AF37>{hotkeyPrefix}</color>{e.buildingName}";
 
         var parts = new System.Collections.Generic.List<string>();
         if (e.costFood > 0) parts.Add($"Food: {e.costFood}");
         if (e.costWood > 0) parts.Add($"Wood: {e.costWood}");
         if (e.costGold > 0) parts.Add($"Gold: {e.costGold}");
-        if (tooltipCostText)
-            tooltipCostText.text = parts.Count > 0 ? string.Join("  ", parts) : "Free";
 
-        if (tooltipDescText) tooltipDescText.text = e.description;
+        if (tooltipCostText)
+        {
+            tooltipCostText.text = parts.Count > 0 ? string.Join("  ", parts) : "Free";
+            tooltipCostText.color = CanAfford(e) ? Color.white : new Color(1f, 0.35f, 0.35f);
+        }
+
+        string desc = e.description ?? "";
+        if (e.buildingName != null && e.buildingName.IndexOf("Wall", System.StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            desc += "\n<color=#D4AF37><b>Hint:</b> Click & Drag on ground to build a connected Stone Wall line</color>";
+        }
+
+        if (tooltipDescText) tooltipDescText.text = desc;
 
         tooltipPanel.SetActive(true);
     }
@@ -156,6 +309,7 @@ public class BuildMenuUI : MonoBehaviour
         for (int i = 0; i < buildButtons.Length; i++)
             if (buildButtons[i] != null)
                 buildButtons[i].gameObject.SetActive(i == 0); // only HomeSite (index 0)
+        UpdateAffordabilityUI();
     }
 
     public void RestoreAllButtons()
@@ -163,14 +317,11 @@ public class BuildMenuUI : MonoBehaviour
         for (int i = 0; i < buildButtons.Length; i++)
             if (buildButtons[i] != null)
                 buildButtons[i].gameObject.SetActive(true);
+        UpdateAffordabilityUI();
     }
 
     /// <summary>
     /// Clears the static Instance when this object dies.
-    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
-    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
-    /// dispatch into this dead object and throw MissingReferenceException the next
-    /// time the scene reloads. Clearing the field makes it a true null.
     /// </summary>
     private void OnDestroy()
     {

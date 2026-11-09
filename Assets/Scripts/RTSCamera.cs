@@ -20,6 +20,7 @@ public class RTSCamera : MonoBehaviour
     [Header("Map Clamp")]
     [Tooltip("Extra camera movement beyond map bounds so screen edges can still reach the full map.")]
     [SerializeField] private float edgeAccessPadding = 8f;
+
     public void SetCameraPosition(int playerIndex)
     {
         Vector3 focus = Vector3.zero;
@@ -29,14 +30,28 @@ public class RTSCamera : MonoBehaviour
             focus = area.GetSpawnPosition(playerIndex);
             Vector3 toCenter = Vector3.zero - focus;
             if (toCenter.sqrMagnitude > 0.001f)
-                focus += toCenter.normalized * 10f;
+                focus += toCenter.normalized * 4f;
         }
 
         float y = transform.position.y;
-        if (y <= 0.01f) y = 30f;
-        transform.position = new Vector3(focus.x, y, focus.z);
+        if (y <= 0.01f) y = 25f;
+
+        Vector3 fwd = transform.forward;
+        if (fwd.y < -0.05f)
+        {
+            float distToGround = y / -fwd.y;
+            transform.position = new Vector3(
+                focus.x - fwd.x * distToGround,
+                y,
+                focus.z - fwd.z * distToGround);
+        }
+        else
+        {
+            transform.position = new Vector3(focus.x, y, focus.z - 15f);
+        }
         ClampToMap();
     }
+
     private void Update()
     {
         if (!SkipNextFrame)
@@ -45,9 +60,10 @@ public class RTSCamera : MonoBehaviour
             HandleZoom();
         }
         SkipNextFrame = false;
-        
+
         ClampToMap();
     }
+
     private void HandlePan()
     {
         Vector3 move = Vector3.zero;
@@ -57,16 +73,22 @@ public class RTSCamera : MonoBehaviour
         if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow))  move += Vector3.left;
         if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) move += Vector3.right;
 
-        if (useEdgePan)
+        if (useEdgePan && Application.isFocused)
         {
             Vector2 m = Input.mousePosition;
-            if (m.x < edgePanThreshold)                 move += Vector3.left;
-            if (m.x > Screen.width  - edgePanThreshold) move += Vector3.right;
-            if (m.y < edgePanThreshold)                 move += Vector3.back;
-            if (m.y > Screen.height - edgePanThreshold) move += Vector3.forward;
+            bool insideScreen = m.x > 1f && m.x < Screen.width - 1f &&
+                                m.y > 1f && m.y < Screen.height - 1f;
+            if (insideScreen)
+            {
+                if (m.x < edgePanThreshold)                 move += Vector3.left;
+                if (m.x > Screen.width  - edgePanThreshold) move += Vector3.right;
+                if (m.y < edgePanThreshold)                 move += Vector3.back;
+                if (m.y > Screen.height - edgePanThreshold) move += Vector3.forward;
+            }
         }
 
-        transform.Translate(move.normalized * panSpeed * Time.deltaTime, Space.World);
+        if (move.sqrMagnitude > 0.001f)
+            transform.Translate(move.normalized * panSpeed * Time.deltaTime, Space.World);
     }
 
     private void HandleZoom()

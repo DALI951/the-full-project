@@ -2,7 +2,10 @@ using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
 
-/// <summary>ResourceInfoUI v11 — X button, null guards, live refresh.</summary>
+/// <summary>
+/// ResourceInfoUI — resource deposit inspection panel with AoE4 Royal Slate-Navy & Gold styling,
+/// providing rich lore and harvest metrics for trees, mines, farms, and wildlife.
+/// </summary>
 public class ResourceInfoUI : MonoBehaviour
 {
     public static ResourceInfoUI Instance { get; private set; }
@@ -42,6 +45,45 @@ public class ResourceInfoUI : MonoBehaviour
             Refresh();
     }
 
+    // ─── AoE4 Resource Information ───────────────────────────────────────
+
+    public static (string title, string givesDesc) GetAoE4ResourceDetails(ResourceNode node)
+    {
+        if (node == null) return ("", "");
+
+        if (node.RequiresKill)
+        {
+            return (
+                "Wild Game (Deer Herd)",
+                "<color=#E5C158>Food Source</color> — Harvestable wildlife. Villagers hunt and field-dress for rich sustenance."
+            );
+        }
+
+        switch (node.ResourceType)
+        {
+            case ResourceType.Wood:
+                return (
+                    "Forest Timber",
+                    "<color=#E5C158>Wood Source</color> — Dense timber grove. Harvested for buildings, palisades, and military gear."
+                );
+            case ResourceType.Gold:
+                return (
+                    "Deep Gold Vein",
+                    "<color=#E5C158>Gold Deposit</color> — Precious metal vein. Essential for military recruitment and Age advancement."
+                );
+            case ResourceType.Food:
+                return (
+                    "Agricultural Farm",
+                    "<color=#E5C158>Renewable Food Plot</color> — Cultivated soil providing steady long-term nutrition."
+                );
+            default:
+                return (
+                    SanitizeName(node.gameObject.name),
+                    $"<color=#E5C158>Resource Deposit</color> — Gives {node.ResourceType}."
+                );
+        }
+    }
+
     // ─── Public API ──────────────────────────────────────────────────────
 
     public void Show(ResourceNode node)
@@ -69,14 +111,24 @@ public class ResourceInfoUI : MonoBehaviour
 
     // ─── Private ─────────────────────────────────────────────────────────
 
+    public static string SanitizeName(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "";
+        string clean = raw.Replace("(Clone)", "").Trim();
+        if (clean == "Animal") clean = "Deer";
+        return clean;
+    }
+
     private void Refresh()
     {
         if (trackedNode == null) return;
 
-        if (nameText)      nameText.text      = trackedNode.gameObject.name;
-        if (resourceText)  resourceText.text  = $"Gives: {trackedNode.ResourceType}";
-        if (amountText)    amountText.text     = $"{trackedNode.RemainingAmount} / {trackedNode.TotalAmount}";
-        if (gatherersText) gatherersText.text  = $"Gatherers: {trackedNode.GathererCount} / {trackedNode.MaxGatherers}";
+        var (title, givesDesc) = GetAoE4ResourceDetails(trackedNode);
+
+        if (nameText)      nameText.text      = title;
+        if (resourceText)  resourceText.text  = givesDesc;
+        if (amountText)    amountText.text    = $"<color=#E5C158>Reserve:</color> {trackedNode.RemainingAmount} / {trackedNode.TotalAmount}";
+        if (gatherersText) gatherersText.text = $"<color=#E5C158>Harvesters:</color> {trackedNode.GathererCount} / {trackedNode.MaxGatherers}";
 
         bool isAnimal = trackedNode.RequiresKill;
         if (healthBarGroup != null) healthBarGroup.SetActive(isAnimal);
@@ -85,14 +137,14 @@ public class ResourceInfoUI : MonoBehaviour
         {
             if (trackedNode.IsKilled)
             {
-                if (healthText)    healthText.text         = "Dead - gatherable";
+                if (healthText)    healthText.text         = "<color=#88FF88>Carcase ready for harvest</color>";
                 if (healthBarFill) healthBarFill.fillAmount = 0f;
             }
             else
             {
                 float ratio = trackedNode.MaxHealth > 0
                     ? (float)trackedNode.CurrentHealth / trackedNode.MaxHealth : 0f;
-                if (healthText)    healthText.text         = $"HP: {trackedNode.CurrentHealth} / {trackedNode.MaxHealth}";
+                if (healthText)    healthText.text         = $"<color=#FFAA88>Wildlife HP:</color> {trackedNode.CurrentHealth} / {trackedNode.MaxHealth}";
                 if (healthBarFill) healthBarFill.fillAmount = Mathf.Clamp01(ratio);
             }
         }
@@ -100,10 +152,6 @@ public class ResourceInfoUI : MonoBehaviour
 
     /// <summary>
     /// Clears the static Instance when this object dies.
-    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
-    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
-    /// dispatch into this dead object and throw MissingReferenceException the next
-    /// time the scene reloads. Clearing the field makes it a true null.
     /// </summary>
     private void OnDestroy()
     {

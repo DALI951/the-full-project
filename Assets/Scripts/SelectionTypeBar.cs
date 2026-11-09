@@ -45,9 +45,10 @@ public class SelectionTypeBar : MonoBehaviour
         foreach (Unit u in units)
         {
             if (u == null) continue;
-            if (!groups.ContainsKey(u.UnitName))
-                groups[u.UnitName] = new List<Unit>();
-            groups[u.UnitName].Add(u);
+            string cleanName = !string.IsNullOrEmpty(u.UnitName) ? u.UnitName.Replace("(Clone)", "").Trim() : "Unit";
+            if (!groups.ContainsKey(cleanName))
+                groups[cleanName] = new List<Unit>();
+            groups[cleanName].Add(u);
         }
 
         if (groups.Count <= 1) { typeBarPanel?.SetActive(false); return; }
@@ -72,16 +73,13 @@ public class SelectionTypeBar : MonoBehaviour
                     { img.sprite = ti.icon; break; }
             }
 
-            // Click → show info for this type
+            // Click → filter selection to only this unit type
             string  capturedName  = kvp.Key;
-            List<Unit> capturedList = kvp.Value;
+            List<Unit> capturedList = new List<Unit>(kvp.Value);
             Button btn = iconGO.GetComponent<Button>();
             btn?.onClick.AddListener(() =>
             {
-                if (capturedList.Count == 1)
-                    UnitInfoUI.Instance?.ShowUnit(capturedList[0]);
-                else
-                    UnitInfoUI.Instance?.ShowMultiple(capturedList);
+                SelectionManager.Instance?.SelectOnlyUnits(capturedList);
 
                 bool hasVillager = capturedName == "Villager";
                 if (hasVillager) BuildMenuUI.Instance?.Show();

@@ -9,7 +9,7 @@ public class EnemyAI : MonoBehaviour
     public static EnemyAI Instance { get; private set; }
 
     [Header("Enemy Identity")]
-    [SerializeField] public int enemyPlayerId = 8;
+    [SerializeField] public int enemyPlayerId = 1;
 
     [Header("Starting Resources")]
     [SerializeField] private int startFood = 400;
@@ -68,8 +68,17 @@ public class EnemyAI : MonoBehaviour
 
     private void Start()
     {
-        if (!NetworkServer.active) { enabled = false; return; }
-        if (NetworkServer.connections.Count >= 2) { enabled = false; return; }
+        // Disable on pure multiplayer clients; run in host mode (NetworkServer.active) and offline mode (!NetworkClient.active)
+        if (NetworkClient.active && !NetworkServer.active) { enabled = false; return; }
+
+        // Only disable EnemyAI if in a multiplayer match with NO AI bot players
+        if (NetworkServer.active && NetworkServer.connections.Count >= 2)
+        {
+            var allPlayers = FindObjectsOfType<NetworkedPlayer>();
+            if (allPlayers.All(p => !IsPlayerAI(p))) { enabled = false; return; }
+        }
+
+        ResolveEnemyPlayerId();
 
         gamesPlayed = PlayerPrefs.GetInt("EnemyGamesPlayed", 0);
         difficultyLevel = Mathf.Min(gamesPlayed, 10);
@@ -118,9 +127,7 @@ public class EnemyAI : MonoBehaviour
     {
         int militaryCount = CountEnemyMilitary();
         int villagerCount = CountEnemyVillagers();
-        // int / int performed INTEGER DIVISION, so this was always 0 or 1 (never 0.0-1.0).
-        // The "< 0.3f" poor-economy check therefore only ever fired at exactly 0,
-        // i.e. when the AI was completely broke - never when resources dipped.
+
         float totalNow = food + wood + gold;
         float totalStart = Mathf.Max(1f, startFood + startWood + startGold);
         float resourceRatio = totalNow / totalStart;
@@ -148,6 +155,11 @@ public class EnemyAI : MonoBehaviour
         food = Mathf.Max(0, food + f);
         wood = Mathf.Max(0, wood + w);
         gold = Mathf.Max(0, gold + g);
+    }
+
+    public bool CanAfford(int costFood, int costWood, int costGold)
+    {
+        return food >= costFood && wood >= costWood && gold >= costGold;
     }
 
     public bool TrySpend(int costFood, int costWood, int costGold)
@@ -210,11 +222,6 @@ public class EnemyAI : MonoBehaviour
 
     private void TryBuildBarracks()
     {
-        // TryPlaceBuilding() spends (cost, cost, cost/2) for food/wood/gold and
-        // bails out safely if it cannot pay, so this gate is only a cheap
-        // fast-path. The old `barracksCost <= wood + 50` added a magic 50 to the
-        // wood total and never checked food or gold at all, letting the AI start
-        // a build it had no resources for.
         if (wood >= barracksCost)
             TryPlaceBuilding(barracksPrefab);
     }
@@ -225,36 +232,84 @@ public class EnemyAI : MonoBehaviour
     [SerializeField] private int towerCost = 100;
     private const int BUILDING_SPACING = 8;
 
+    public GameObject SpawnBuilding(GameObject prefab, Vector3 pos)
+    {
+        if (prefab == null) return null;
+        pos = ClampToMap(pos);
+        if (UnityEngine.AI.NavMesh.SamplePosition(pos, out UnityEngine.AI.NavMeshHit hit, 10f, UnityEngine.AI.NavMesh.AllAreas))
+            pos = hit.position;
+        else if (Physics.Raycast(new Vector3(pos.x, pos.y + 200f, pos.z), Vector3.down, out RaycastHit gHit, 400f))
+            pos.y = gHit.point.y;
+
+        GameObject go = Instantiate(prefab, pos, Quaternion.identity);
+        AlignBottomToGround(go, pos.y);
+        int layer = LayerMask.NameToLayer("Building");
+        if (layer >= 0) SetLayerRecursive(go, layer);
+
+        if (go.GetComponentInChildren<Collider>() == null)
+        {
+            BoxCollider bc = go.AddComponent<BoxCollider>();
+            bc.size = new Vector3(2f, 2f, 2f);
+        }
+
+        if (go.TryGetComponent(out Building building))
+            building.SetOwner(enemyPlayerId);
+
+        if (NetworkServer.active)
+            NetworkServer.Spawn(go);
+
+        return go;
+    }
+
     private void TryPlaceBuilding(GameObject prefab)
     {
         if (prefab == null) return;
         Vector3 basePos = GetEnemyBasePosition();
         if (basePos == Vector3.zero) return;
 
-        for (int attempt = 0; attempt < 5; attempt++)
+        Vector3 pos = FindBuildSpot(basePos, 6f);
+        if (pos != Vector3.zero)
         {
-            Vector2 rand = Random.insideUnitCircle * (10f + attempt * 3f);
+            int cost = GetBuildingCost(prefab);
+            if (!TrySpend(cost, cost, cost / 2)) return;
+
+            AssignBuilderToBuild(pos, prefab);
+            builtPositions.Add(pos);
+        }
+    }
+
+    private Vector3 FindBuildSpot(Vector3 basePos, float minSpacing = 6f)
+    {
+        for (int attempt = 0; attempt < 10; attempt++)
+        {
+            Vector2 rand = Random.insideUnitCircle.normalized * Random.Range(minSpacing + 2f, 22f + attempt * 2f);
             Vector3 pos = basePos + new Vector3(rand.x, 0f, rand.y);
             pos = ClampToMap(pos);
 
             if (UnityEngine.AI.NavMesh.SamplePosition(pos, out UnityEngine.AI.NavMeshHit hit, 5f, UnityEngine.AI.NavMesh.AllAreas))
                 pos = hit.position;
 
-            if (IsPositionClearForBuilding(pos) && !builtPositions.Contains(pos))
-            {
-                int cost = GetBuildingCost(prefab);
-                if (!TrySpend(cost, cost, cost / 2)) continue;
-
-                AssignBuilderToBuild(pos, prefab);
-                builtPositions.Add(pos);
-                break;
-            }
+            if (IsPositionClearForBuilding(pos, minSpacing))
+                return pos;
         }
+        return Vector3.zero;
     }
 
-    private bool IsPositionClearForBuilding(Vector3 pos)
+    private bool IsPositionClearForBuilding(Vector3 pos, float minSpacing = 5f)
     {
-        Collider[] hits = Physics.OverlapSphere(pos, 3f);
+        foreach (Vector3 built in builtPositions)
+        {
+            if (Vector3.Distance(pos, built) < minSpacing) return false;
+        }
+        foreach (Building b in Building.AllBuildings)
+        {
+            if (b != null && Vector3.Distance(pos, b.transform.position) < minSpacing) return false;
+        }
+        foreach (ConstructionSite cs in FindObjectsOfType<ConstructionSite>())
+        {
+            if (cs != null && Vector3.Distance(pos, cs.transform.position) < minSpacing) return false;
+        }
+        Collider[] hits = Physics.OverlapSphere(pos, minSpacing * 0.5f);
         foreach (Collider c in hits)
         {
             if (c.GetComponentInParent<Building>() != null) return false;
@@ -274,18 +329,31 @@ public class EnemyAI : MonoBehaviour
 
     private void AssignBuilderToBuild(Vector3 pos, GameObject prefab)
     {
-        if (constructionSitePrefab == null) return;
         Villager builder = FindIdleVillager();
         if (builder == null) return;
         Vector3 clampedPos = ClampToMap(pos);
-        GameObject siteGO = Object.Instantiate(constructionSitePrefab, clampedPos, Quaternion.identity);
-        ConstructionSite site = siteGO.GetComponent<ConstructionSite>();
-        if (site == null) { Object.Destroy(siteGO); return; }
-        int cost = GetBuildingCost(prefab);
-        site.Initialize(prefab, 10f, cost, cost, cost / 2);
-        site.SetOwnerOnServer(enemyPlayerId);
-        NetworkServer.Spawn(siteGO);
-        builder.BuildAt(site);
+        if (UnityEngine.AI.NavMesh.SamplePosition(clampedPos, out UnityEngine.AI.NavMeshHit hit, 5f, UnityEngine.AI.NavMesh.AllAreas))
+            clampedPos = hit.position;
+        else if (Physics.Raycast(new Vector3(clampedPos.x, clampedPos.y + 200f, clampedPos.z), Vector3.down, out RaycastHit gHit, 400f))
+            clampedPos.y = gHit.point.y;
+
+        if (constructionSitePrefab != null)
+        {
+            GameObject siteGO = Object.Instantiate(constructionSitePrefab, clampedPos, Quaternion.identity);
+            AlignBottomToGround(siteGO, clampedPos.y);
+            ConstructionSite site = siteGO.GetComponent<ConstructionSite>();
+            if (site == null) { Object.Destroy(siteGO); return; }
+            int cost = GetBuildingCost(prefab);
+            site.Initialize(prefab, 10f, cost, cost, cost / 2);
+            site.SetOwnerOnServer(enemyPlayerId);
+            if (NetworkServer.active)
+                NetworkServer.Spawn(siteGO);
+            builder.BuildAt(site);
+        }
+        else
+        {
+            SpawnBuilding(prefab, clampedPos);
+        }
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -313,7 +381,7 @@ public class EnemyAI : MonoBehaviour
             {
                 if (villagerCount < 12 || (ecoPriority > 0 && currentPopulation < maxPopulation - 2))
                 {
-                    if (TrySpend(50, 0, 0))
+                    if (CanAfford(50, 0, 0) && CanAddPopulation(1))
                     {
                         b.SpawnUnit(0);
                         ecoPriority = Mathf.Max(0, ecoPriority - 1);
@@ -333,7 +401,7 @@ public class EnemyAI : MonoBehaviour
                 {
                     int costFood = unitPrefab is Cavalry ? 80 : 60;
                     int costGold = unitPrefab is Cavalry ? 30 : 20;
-                    if (TrySpend(costFood, 0, costGold) && CanAddPopulation(1))
+                    if (CanAfford(costFood, 0, costGold) && CanAddPopulation(1))
                         b.SpawnUnit(idx);
                 }
             }
@@ -494,6 +562,19 @@ public class EnemyAI : MonoBehaviour
 
     private void InitialGatherOrders() => CheckGatherers();
 
+    public void SendVillagerToGather(Villager v)
+    {
+        if (v == null || v.IsGathering) return;
+        ResourceType preferredType = GetPreferredResourceType();
+        ResourceNode node = ResourceNode.FindNearest(v.transform.position, preferredType, null, 250f);
+        if (node == null)
+            node = ResourceNode.FindNearestAny(v.transform.position, 250f);
+        if (node != null)
+        {
+            v.GatherFrom(node);
+        }
+    }
+
     private void CheckGatherers()
     {
         if (UnitSelectionManager.Instance == null) return;
@@ -503,11 +584,7 @@ public class EnemyAI : MonoBehaviour
             if (u.OwnerPlayerId != enemyPlayerId) continue;
             if (v.IsGathering) continue;
 
-            ResourceType preferredType = GetPreferredResourceType();
-            ResourceNode node = ResourceNode.FindNearest(u.transform.position, preferredType, null, 250f);
-            if (node == null)
-                node = ResourceNode.FindNearestAny(u.transform.position, 250f);
-            if (node != null) v.GatherFrom(node);
+            SendVillagerToGather(v);
         }
     }
 
@@ -730,7 +807,86 @@ public class EnemyAI : MonoBehaviour
     {
         foreach (Building b in Building.AllBuildings)
             if (b != null && b.OwnerPlayerId == enemyPlayerId) return b.transform.position;
+
+        ResolveEnemyPlayerId();
+        foreach (Building b in Building.AllBuildings)
+            if (b != null && b.OwnerPlayerId == enemyPlayerId) return b.transform.position;
         return Vector3.zero;
+    }
+
+    public void ResolveEnemyPlayerId()
+    {
+        bool hasEnemyBuilding = false;
+        foreach (Building b in Building.AllBuildings)
+        {
+            if (b != null && b.OwnerPlayerId == enemyPlayerId)
+            {
+                hasEnemyBuilding = true;
+                break;
+            }
+        }
+
+        if (!hasEnemyBuilding)
+        {
+            NetworkedPlayer aiPlayer = FindObjectsOfType<NetworkedPlayer>().FirstOrDefault(p => IsPlayerAI(p));
+            if (aiPlayer != null)
+            {
+                enemyPlayerId = aiPlayer.playerIndex;
+            }
+            else
+            {
+                int localId = PlayerColorManager.LocalPlayerIndex;
+                foreach (Building b in Building.AllBuildings)
+                {
+                    if (b != null && b.OwnerPlayerId != 0 && b.OwnerPlayerId != localId)
+                    {
+                        enemyPlayerId = b.OwnerPlayerId;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    private void AlignBottomToGround(GameObject go, float targetGroundY)
+    {
+        if (go == null) return;
+        Renderer[] renderers = go.GetComponentsInChildren<Renderer>();
+        if (renderers != null && renderers.Length > 0)
+        {
+            Bounds totalBounds = default;
+            bool hasBounds = false;
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] is ParticleSystemRenderer || !renderers[i].enabled) continue;
+                if (!hasBounds)
+                {
+                    totalBounds = renderers[i].bounds;
+                    hasBounds = true;
+                }
+                else
+                {
+                    totalBounds.Encapsulate(renderers[i].bounds);
+                }
+            }
+            if (hasBounds)
+            {
+                float bottomY = totalBounds.min.y;
+                float diff = targetGroundY - bottomY;
+                if (Mathf.Abs(diff) > 0.01f)
+                {
+                    go.transform.position += new Vector3(0f, diff, 0f);
+                }
+            }
+        }
+    }
+
+    private void SetLayerRecursive(GameObject go, int layer)
+    {
+        if (layer < 0) return;
+        go.layer = layer;
+        foreach (Transform child in go.transform)
+            SetLayerRecursive(child.gameObject, layer);
     }
 
     private Vector3 ClampToMap(Vector3 pos)
@@ -750,5 +906,22 @@ public class EnemyAI : MonoBehaviour
     private void OnDestroy()
     {
         if (Instance == this) Instance = null;
+    }
+
+    private static bool IsPlayerAI(NetworkedPlayer p)
+    {
+        if (p == null) return false;
+        var field = typeof(NetworkedPlayer).GetField("isAI");
+        if (field != null && field.FieldType == typeof(bool))
+            return (bool)field.GetValue(p);
+        var prop = typeof(NetworkedPlayer).GetProperty("isAI");
+        if (prop != null && prop.PropertyType == typeof(bool))
+            return (bool)prop.GetValue(p);
+
+        if (p.connectionToClient == null && p.netIdentity != null && !p.isLocalPlayer)
+            return true;
+        if (!string.IsNullOrEmpty(p.displayName) && (p.displayName.StartsWith("Bot") || p.displayName.StartsWith("AI")))
+            return true;
+        return false;
     }
 }

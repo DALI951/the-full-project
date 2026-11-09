@@ -9,18 +9,54 @@ public class NetworkedPlayer : NetworkBehaviour
     [SyncVar] public int playerIndex = 0;
     [SyncVar] public string displayName = "Player";
     [SyncVar] public int teamIndex = 0;
+    [SyncVar] public bool isAI = false;
 
-    [SyncVar] private int syncFood = 200;
-    [SyncVar] private int syncWood = 150;
-    [SyncVar] private int syncGold = 100;
-    [SyncVar] private int syncPopulation = 0;
-    [SyncVar] private int syncMaxPopulation = 20;
+    [SyncVar(hook = nameof(OnSyncFoodChanged))]          private int syncFood = 200;
+    [SyncVar(hook = nameof(OnSyncWoodChanged))]          private int syncWood = 150;
+    [SyncVar(hook = nameof(OnSyncGoldChanged))]          private int syncGold = 100;
+    [SyncVar(hook = nameof(OnSyncPopulationChanged))]    private int syncPopulation = 0;
+    [SyncVar(hook = nameof(OnSyncMaxPopulationChanged))] private int syncMaxPopulation = 20;
 
     public int Food => syncFood;
     public int Wood => syncWood;
     public int Gold => syncGold;
     public int CurrentPopulation => syncPopulation;
     public int MaxPopulation => syncMaxPopulation;
+
+    private void OnSyncFoodChanged(int oldVal, int newVal)
+    {
+        syncFood = newVal;
+        if (isLocalPlayer)
+            ResourceUI.Instance?.Refresh(newVal, syncWood, syncGold);
+    }
+
+    private void OnSyncWoodChanged(int oldVal, int newVal)
+    {
+        syncWood = newVal;
+        if (isLocalPlayer)
+            ResourceUI.Instance?.Refresh(syncFood, newVal, syncGold);
+    }
+
+    private void OnSyncGoldChanged(int oldVal, int newVal)
+    {
+        syncGold = newVal;
+        if (isLocalPlayer)
+            ResourceUI.Instance?.Refresh(syncFood, syncWood, newVal);
+    }
+
+    private void OnSyncPopulationChanged(int oldVal, int newVal)
+    {
+        syncPopulation = newVal;
+        if (isLocalPlayer)
+            ResourceUI.Instance?.RefreshPopulation(newVal, syncMaxPopulation);
+    }
+
+    private void OnSyncMaxPopulationChanged(int oldVal, int newVal)
+    {
+        syncMaxPopulation = newVal;
+        if (isLocalPlayer)
+            ResourceUI.Instance?.RefreshPopulation(syncPopulation, newVal);
+    }
 
     private static readonly List<NetworkedPlayer> AllPlayers = new List<NetworkedPlayer>();
     public static List<NetworkedPlayer> AllPlayersList => AllPlayers;
@@ -29,7 +65,12 @@ public class NetworkedPlayer : NetworkBehaviour
     {
         base.OnStartClient();
         AllPlayers.Add(this);
-        if (isLocalPlayer) LocalInstance = this;
+        if (isLocalPlayer)
+        {
+            LocalInstance = this;
+            ResourceUI.Instance?.Refresh(syncFood, syncWood, syncGold);
+            ResourceUI.Instance?.RefreshPopulation(syncPopulation, syncMaxPopulation);
+        }
     }
 
     public override void OnStopClient()
@@ -65,6 +106,8 @@ public class NetworkedPlayer : NetworkBehaviour
         syncFood = 200;
         syncWood = 150;
         syncGold = 100;
+        if (isLocalPlayer)
+            ResourceUI.Instance?.Refresh(syncFood, syncWood, syncGold);
     }
 
     public static bool SameTeam(int playerA, int playerB)
@@ -79,6 +122,8 @@ public class NetworkedPlayer : NetworkBehaviour
     {
         if (syncFood < f || syncWood < w || syncGold < g) return false;
         syncFood -= f; syncWood -= w; syncGold -= g;
+        if (isLocalPlayer)
+            ResourceUI.Instance?.Refresh(syncFood, syncWood, syncGold);
         return true;
     }
 
@@ -87,10 +132,24 @@ public class NetworkedPlayer : NetworkBehaviour
         syncFood = UnityEngine.Mathf.Max(0, syncFood + f);
         syncWood = UnityEngine.Mathf.Max(0, syncWood + w);
         syncGold = UnityEngine.Mathf.Max(0, syncGold + g);
+        if (isLocalPlayer)
+            ResourceUI.Instance?.Refresh(syncFood, syncWood, syncGold);
     }
 
-    [Server] public void AddPopulation(int a) => syncPopulation = UnityEngine.Mathf.Clamp(syncPopulation + a, 0, syncMaxPopulation);
-    [Server] public void RemovePopulation(int a) => syncPopulation = UnityEngine.Mathf.Max(0, syncPopulation - a);
+    [Server] public void AddPopulation(int a)
+    {
+        syncPopulation = UnityEngine.Mathf.Clamp(syncPopulation + a, 0, syncMaxPopulation);
+        if (isLocalPlayer)
+            ResourceUI.Instance?.RefreshPopulation(syncPopulation, syncMaxPopulation);
+    }
+
+    [Server] public void RemovePopulation(int a)
+    {
+        syncPopulation = UnityEngine.Mathf.Max(0, syncPopulation - a);
+        if (isLocalPlayer)
+            ResourceUI.Instance?.RefreshPopulation(syncPopulation, syncMaxPopulation);
+    }
+
     [Server] public bool CanAddPopulation(int a = 1) => syncPopulation + a <= syncMaxPopulation;
 
     [Command]
@@ -105,6 +164,7 @@ public class NetworkedPlayer : NetworkBehaviour
     [Command]
     public void CmdMoveUnits(uint[] unitNetIds, Vector3 destination)
     {
+        if (unitNetIds == null) return;
         foreach (uint id in unitNetIds)
         {
             if (!NetworkServer.spawned.TryGetValue(id, out NetworkIdentity ni)) continue;
@@ -115,25 +175,69 @@ public class NetworkedPlayer : NetworkBehaviour
     }
 
     [Command]
-    public void CmdUnitAttack(uint attackerNetId, uint targetNetId)
+    public void CmdMoveUnitsFormation(uint[] unitNetIds, Vector3[] targetPositions, bool queueWaypoint)
     {
-        if (!NetworkServer.spawned.TryGetValue(attackerNetId, out NetworkIdentity atkNi)) return;
-        if (!NetworkServer.spawned.TryGetValue(targetNetId, out NetworkIdentity tgtNi)) return;
-        Unit attacker = atkNi.GetComponent<Unit>();
-        Unit target = tgtNi.GetComponent<Unit>();
-        if (attacker == null || target == null || attacker.OwnerPlayerId != playerIndex) return;
-        attacker.SetAttackTarget(target);
+        if (unitNetIds == null || targetPositions == null) return;
+        int count = Mathf.Min(unitNetIds.Length, targetPositions.Length);
+        for (int i = 0; i < count; i++)
+        {
+            if (!NetworkServer.spawned.TryGetValue(unitNetIds[i], out NetworkIdentity ni)) continue;
+            Unit unit = ni.GetComponent<Unit>();
+            if (unit == null || unit.OwnerPlayerId != playerIndex) continue;
+            if (queueWaypoint)
+            {
+                unit.AddWaypoint(targetPositions[i]);
+            }
+            else
+            {
+                unit.ClearWaypoints();
+                unit.MoveTo(targetPositions[i]);
+            }
+        }
     }
 
     [Command]
+    public void CmdUnitAttack(uint[] attackerNetIds, uint targetNetId)
+    {
+        if (attackerNetIds == null) return;
+        if (!NetworkServer.spawned.TryGetValue(targetNetId, out NetworkIdentity tgtNi)) return;
+        Unit target = tgtNi.GetComponent<Unit>();
+        if (target == null) return;
+
+        foreach (uint id in attackerNetIds)
+        {
+            if (!NetworkServer.spawned.TryGetValue(id, out NetworkIdentity atkNi)) continue;
+            Unit attacker = atkNi.GetComponent<Unit>();
+            if (attacker == null || attacker.OwnerPlayerId != playerIndex) continue;
+            attacker.SetAttackTarget(target);
+        }
+    }
+
+    public void CmdUnitAttack(uint attackerNetId, uint targetNetId)
+    {
+        CmdUnitAttack(new uint[] { attackerNetId }, targetNetId);
+    }
+
+    [Command]
+    public void CmdUnitAttackBuilding(uint[] attackerNetIds, uint buildingNetId)
+    {
+        if (attackerNetIds == null) return;
+        if (!NetworkServer.spawned.TryGetValue(buildingNetId, out NetworkIdentity bldNi)) return;
+        Building building = bldNi.GetComponent<Building>();
+        if (building == null) return;
+
+        foreach (uint id in attackerNetIds)
+        {
+            if (!NetworkServer.spawned.TryGetValue(id, out NetworkIdentity atkNi)) continue;
+            Unit attacker = atkNi.GetComponent<Unit>();
+            if (attacker == null || attacker.OwnerPlayerId != playerIndex) continue;
+            attacker.SetBuildingTarget(building);
+        }
+    }
+
     public void CmdUnitAttackBuilding(uint attackerNetId, uint buildingNetId)
     {
-        if (!NetworkServer.spawned.TryGetValue(attackerNetId, out NetworkIdentity atkNi)) return;
-        if (!NetworkServer.spawned.TryGetValue(buildingNetId, out NetworkIdentity bldNi)) return;
-        Unit attacker = atkNi.GetComponent<Unit>();
-        Building building = bldNi.GetComponent<Building>();
-        if (attacker == null || building == null || attacker.OwnerPlayerId != playerIndex) return;
-        attacker.SetBuildingTarget(building);
+        CmdUnitAttackBuilding(new uint[] { attackerNetId }, buildingNetId);
     }
 
     [Command]
@@ -253,11 +357,7 @@ public class NetworkedPlayer : NetworkBehaviour
         building.SetSpawnPoint(point);
     }
 
-    // Entering "placement mode" is purely local UI state — BuildMenuUI.AllEntries
-    // is identical static inspector data on every peer. This used to be a
-    // [Command] + [TargetRpc] pair, which paid a full client -> server -> client
-    // network round-trip just to toggle a local ghost preview.
-    [ClientRpc]
+    // Entering "placement mode" is purely local UI state. Kept as a public method for compatibility.
     public void RpcStartPlacing(string prefabName)
     {
         BuildMenuUI.BuildEntry entry = FindBuildEntry(prefabName);
@@ -271,6 +371,23 @@ public class NetworkedPlayer : NetworkBehaviour
             entry.costFood, entry.costWood, entry.costGold);
     }
 
+    public void RpcStartPlacing(int buildingIndex, int foodCost = 0, int woodCost = 0, int goldCost = 0)
+    {
+        BuildMenuUI.BuildEntry[] all = BuildMenuUI.AllEntries;
+        if (all == null || buildingIndex < 0 || buildingIndex >= all.Length) return;
+        BuildMenuUI.BuildEntry entry = all[buildingIndex];
+        if (entry == null || entry.buildingPrefab == null || entry.constructionSitePrefab == null) return;
+
+        BuildingPlacer.Instance?.StartPlacing(
+            entry.buildingPrefab,
+            entry.constructionSitePrefab,
+            entry.buildTime,
+            entry.ghostMaterial,
+            foodCost > 0 ? foodCost : entry.costFood,
+            woodCost > 0 ? woodCost : entry.costWood,
+            goldCost > 0 ? goldCost : entry.costGold);
+    }
+
     [Command]
     public void CmdCancelBuildingSite(uint siteNetId)
     {
@@ -278,6 +395,63 @@ public class NetworkedPlayer : NetworkBehaviour
         ConstructionSite site = ni.GetComponent<ConstructionSite>();
         if (site == null) return;
         site.Demolish();
+    }
+
+    [Command]
+    public void CmdAddWorkerToResourceBuilding(Vector3 buildingPos)
+    {
+        ResourceBuilding rb = ResourceBuilding.FindByPosition(buildingPos);
+        if (rb == null) return;
+        Building b = rb.GetComponent<Building>();
+        if (b != null && b.OwnerPlayerId != playerIndex) return;
+        rb.ServerAssignClosestIdleVillager(playerIndex);
+    }
+
+    [Command]
+    public void CmdEjectWorkerFromResourceBuilding(Vector3 buildingPos)
+    {
+        ResourceBuilding rb = ResourceBuilding.FindByPosition(buildingPos);
+        if (rb == null) return;
+        Building b = rb.GetComponent<Building>();
+        if (b != null && b.OwnerPlayerId != playerIndex) return;
+        rb.EjectOneVillager();
+    }
+
+    [Command]
+    public void CmdRequestResourceBuildingWorkers(Vector3 buildingPos)
+    {
+        ResourceBuilding rb = ResourceBuilding.FindByPosition(buildingPos);
+        if (rb != null)
+            TargetSyncResourceBuildingWorkers(buildingPos, rb.WorkerCount);
+    }
+
+    [TargetRpc]
+    public void TargetSyncResourceBuildingWorkers(Vector3 buildingPos, int workerCount)
+    {
+        ResourceBuilding rb = ResourceBuilding.FindByPosition(buildingPos);
+        if (rb != null)
+            rb.SetSyncedWorkerCount(workerCount);
+    }
+
+    [ClientRpc]
+    public void RpcSyncResourceBuildingWorkers(Vector3 buildingPos, int workerCount)
+    {
+        ResourceBuilding rb = ResourceBuilding.FindByPosition(buildingPos);
+        if (rb != null)
+            rb.SetSyncedWorkerCount(workerCount);
+    }
+
+    public static void BroadcastResourceBuildingWorkers(Vector3 pos, int workerCount)
+    {
+        if (NetworkServer.active)
+        {
+            foreach (var kv in NetworkServer.connections)
+            {
+                NetworkedPlayer np = kv.Value?.identity?.GetComponent<NetworkedPlayer>();
+                if (np != null)
+                    np.RpcSyncResourceBuildingWorkers(pos, workerCount);
+            }
+        }
     }
 
     [Server]

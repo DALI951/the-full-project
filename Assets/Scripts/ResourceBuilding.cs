@@ -9,6 +9,27 @@ using UnityEngine.AI;
 /// </summary>
 public class ResourceBuilding : MonoBehaviour
 {
+    private static readonly List<ResourceBuilding> allResourceBuildings = new List<ResourceBuilding>();
+    public static IReadOnlyList<ResourceBuilding> AllBuildings => allResourceBuildings;
+
+    public static ResourceBuilding FindByPosition(Vector3 pos, float maxDist = 2.5f)
+    {
+        ResourceBuilding best = null;
+        float bestDist = maxDist;
+        for (int i = 0; i < allResourceBuildings.Count; i++)
+        {
+            var b = allResourceBuildings[i];
+            if (b == null) continue;
+            float d = Vector3.Distance(b.transform.position, pos);
+            if (d < bestDist)
+            {
+                bestDist = d;
+                best = b;
+            }
+        }
+        return best;
+    }
+
     [Header("Resource Generation")]
     [SerializeField] private ResourceType resourceType  = ResourceType.Food;
     [SerializeField] private int          amountPerTick = 5;
@@ -19,11 +40,26 @@ public class ResourceBuilding : MonoBehaviour
     // ── Worker system ────────────────────────────────────────────────────
     private readonly List<Villager> workers  = new List<Villager>();
     private const int               maxWorkers = 8;
+    private int                     syncedWorkerCount = 0;
 
     // ── Lifecycle ────────────────────────────────────────────────────────
 
+    private void OnEnable()
+    {
+        if (!allResourceBuildings.Contains(this))
+            allResourceBuildings.Add(this);
+    }
+
+    private void OnDisable()
+    {
+        allResourceBuildings.Remove(this);
+    }
+
     private void Start()
     {
+        if (!allResourceBuildings.Contains(this))
+            allResourceBuildings.Add(this);
+
         // Ensure a collider exists so OnMouseDown fires
         if (GetComponent<Collider>() == null && GetComponentInChildren<Collider>() == null)
         {
@@ -35,6 +71,7 @@ public class ResourceBuilding : MonoBehaviour
 
     private void OnDestroy()
     {
+        allResourceBuildings.Remove(this);
         for (int i = workers.Count - 1; i >= 0; i--)
             if (workers[i] != null)
                 workers[i].ExitResourceBuilding(transform.position + Vector3.right * 2f);
@@ -89,10 +126,16 @@ public class ResourceBuilding : MonoBehaviour
 
     // ── Worker API ───────────────────────────────────────────────────────
 
+    public void SetSyncedWorkerCount(int count)
+    {
+        syncedWorkerCount = count;
+        ResourceBuildingUI.Instance?.RefreshIfShowing(this);
+    }
+
     /// <summary>Returns false if building is full; shows notification.</summary>
     public bool TryAddVillager(Villager v)
     {
-        if (workers.Count >= maxWorkers)
+        if (WorkerCount >= maxWorkers)
         {
             ResourceBuildingUI.Instance?.ShowNotification(
                 $"{gameObject.name} is full! (max {maxWorkers} villagers)");
@@ -107,6 +150,8 @@ public class ResourceBuilding : MonoBehaviour
     public void OnVillagerArrived(Villager v)
     {
         if (!workers.Contains(v)) workers.Add(v);
+        if (Mirror.NetworkServer.active)
+            NetworkedPlayer.BroadcastResourceBuildingWorkers(transform.position, workers.Count);
         ResourceBuildingUI.Instance?.RefreshIfShowing(this);
     }
 
@@ -114,15 +159,25 @@ public class ResourceBuilding : MonoBehaviour
     public void OnVillagerLeft(Villager v)
     {
         workers.Remove(v);
+        if (Mirror.NetworkServer.active)
+            NetworkedPlayer.BroadcastResourceBuildingWorkers(transform.position, workers.Count);
         ResourceBuildingUI.Instance?.RefreshIfShowing(this);
     }
 
     /// <summary>Ejects the most-recently-added worker villager.</summary>
     public void EjectOneVillager()
     {
+        if (Mirror.NetworkClient.active && !Mirror.NetworkServer.active && NetworkedPlayer.LocalInstance != null)
+        {
+            NetworkedPlayer.LocalInstance.CmdEjectWorkerFromResourceBuilding(transform.position);
+            return;
+        }
+
         if (workers.Count == 0) return;
         Villager v = workers[workers.Count - 1];
         workers.RemoveAt(workers.Count - 1);
+        if (Mirror.NetworkServer.active)
+            NetworkedPlayer.BroadcastResourceBuildingWorkers(transform.position, workers.Count);
         if (v == null) return;
         Vector3 exitPos = transform.position + transform.forward * 2.5f;
         if (NavMesh.SamplePosition(exitPos, out NavMeshHit hit, 5f, NavMesh.AllAreas))
@@ -134,6 +189,12 @@ public class ResourceBuilding : MonoBehaviour
     /// <summary>Finds the nearest idle local villager and sends them in.</summary>
     public void GetClosestIdleVillager()
     {
+        if (Mirror.NetworkClient.active && NetworkedPlayer.LocalInstance != null)
+        {
+            NetworkedPlayer.LocalInstance.CmdAddWorkerToResourceBuilding(transform.position);
+            return;
+        }
+
         if (workers.Count >= maxWorkers)
         {
             ResourceBuildingUI.Instance?.ShowNotification(
@@ -160,8 +221,53 @@ public class ResourceBuilding : MonoBehaviour
             ResourceBuildingUI.Instance?.ShowNotification("No idle villagers available!");
     }
 
+    public bool ServerAssignClosestIdleVillager(int ownerPlayerId)
+    {
+        if (workers.Count >= maxWorkers) return false;
+
+        Villager best = null;
+        float bestDist = float.MaxValue;
+
+        if (UnitSelectionManager.Instance != null && UnitSelectionManager.Instance.allUnitsList != null)
+        {
+            foreach (Unit u in UnitSelectionManager.Instance.allUnitsList)
+            {
+                if (!(u is Villager v)) continue;
+                if (v.OwnerPlayerId != ownerPlayerId) continue;
+                if (!v.IsIdle) continue;
+                float d = Vector3.Distance(transform.position, v.transform.position);
+                if (d < bestDist) { bestDist = d; best = v; }
+            }
+        }
+        else
+        {
+            foreach (Villager v in FindObjectsOfType<Villager>())
+            {
+                if (v.OwnerPlayerId != ownerPlayerId) continue;
+                if (!v.IsIdle) continue;
+                float d = Vector3.Distance(transform.position, v.transform.position);
+                if (d < bestDist) { bestDist = d; best = v; }
+            }
+        }
+
+        if (best != null)
+        {
+            return TryAddVillager(best);
+        }
+        return false;
+    }
+
     // ── Properties ───────────────────────────────────────────────────────
-    public int          WorkerCount     => workers.Count;
+    public int WorkerCount
+    {
+        get
+        {
+            if (Mirror.NetworkClient.active && !Mirror.NetworkServer.active)
+                return syncedWorkerCount;
+            return workers.Count;
+        }
+    }
+
     public int          MaxWorkers      => maxWorkers;
     public ResourceType GetResourceType => resourceType;
 }

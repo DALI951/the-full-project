@@ -19,8 +19,19 @@ public static class SceneCapture
     {
         string path = Path.Combine(ScreenshotDir, "game_view.png");
 
-        var rt = RenderTexture.GetTemporary(Screen.width, Screen.height, 24);
-        var cam = Camera.main;
+        int w = 1280;
+        int h = 720;
+        var rt = RenderTexture.GetTemporary(w, h, 24);
+        Camera cam = null;
+        foreach (var c in Camera.allCameras)
+        {
+            if (c != null && c.targetTexture == null && c.name.IndexOf("MiniMap", System.StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                cam = c;
+                break;
+            }
+        }
+        if (cam == null) cam = Camera.main;
         if (cam == null) return null;
 
         var prevRT = cam.targetTexture;
@@ -28,8 +39,8 @@ public static class SceneCapture
         cam.Render();
 
         RenderTexture.active = rt;
-        var tex = new Texture2D(Screen.width, Screen.height, TextureFormat.RGB24, false);
-        tex.ReadPixels(new Rect(0, 0, Screen.width, Screen.height), 0, 0);
+        var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+        tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
         tex.Apply();
 
         cam.targetTexture = prevRT;
@@ -52,8 +63,8 @@ public static class SceneCapture
         var cam = sceneView.camera;
         if (cam == null) return null;
 
-        int w = (int)sceneView.position.width;
-        int h = (int)sceneView.position.height;
+        int w = Mathf.Max(640, (int)sceneView.position.width);
+        int h = Mathf.Max(360, (int)sceneView.position.height);
 
         var rt = RenderTexture.GetTemporary(w, h, 24);
         var prevRT = cam.targetTexture;

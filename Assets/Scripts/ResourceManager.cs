@@ -4,6 +4,7 @@ using Mirror;
 /// <summary>
 /// ResourceManager — tracks Food, Wood, and Gold.
 /// A singleton so any script can read/write resources via ResourceManager.Instance.
+/// Synchronizes bidirectionally with NetworkedPlayer.LocalInstance in multiplayer and host mode.
 /// </summary>
 public class ResourceManager : MonoBehaviour
 {
@@ -47,6 +48,7 @@ public class ResourceManager : MonoBehaviour
             maxPopulation = np.MaxPopulation;
         }
         ResourceUI.Instance?.Refresh(food, wood, gold);
+        ResourceUI.Instance?.RefreshPopulation(currentPopulation, maxPopulation);
     }
 
     private void Update()
@@ -73,9 +75,20 @@ public class ResourceManager : MonoBehaviour
     /// <summary>Add amounts to each resource (use negative to subtract).</summary>
     public void AddResources(int addFood, int addWood, int addGold)
     {
-        food = Mathf.Max(0, food + addFood);
-        wood = Mathf.Max(0, wood + addWood);
-        gold = Mathf.Max(0, gold + addGold);
+        NetworkedPlayer np = NetworkedPlayer.LocalInstance;
+        if (np != null && NetworkServer.active)
+        {
+            np.AddResources(addFood, addWood, addGold);
+            food = np.Food;
+            wood = np.Wood;
+            gold = np.Gold;
+        }
+        else
+        {
+            food = Mathf.Max(0, food + addFood);
+            wood = Mathf.Max(0, wood + addWood);
+            gold = Mathf.Max(0, gold + addGold);
+        }
 
         ResourceUI.Instance?.Refresh(food, wood, gold);
     }
@@ -83,35 +96,80 @@ public class ResourceManager : MonoBehaviour
     /// <summary>Returns true and deducts cost if the player can afford it.</summary>
     public bool TrySpend(int costFood, int costWood, int costGold)
     {
+        NetworkedPlayer np = NetworkedPlayer.LocalInstance;
+        if (np != null && NetworkServer.active)
+        {
+            if (!np.TrySpend(costFood, costWood, costGold))
+            {
+                Debug.Log("[ResourceManager] Not enough resources (networked).");
+                return false;
+            }
+            food = np.Food;
+            wood = np.Wood;
+            gold = np.Gold;
+            ResourceUI.Instance?.Refresh(food, wood, gold);
+            return true;
+        }
+
         if (food < costFood || wood < costWood || gold < costGold)
         {
             Debug.Log("[ResourceManager] Not enough resources.");
             return false;
         }
 
-        AddResources(-costFood, -costWood, -costGold);
+        food = Mathf.Max(0, food - costFood);
+        wood = Mathf.Max(0, wood - costWood);
+        gold = Mathf.Max(0, gold - costGold);
+
+        ResourceUI.Instance?.Refresh(food, wood, gold);
         return true;
     }
+
     public bool CanAddPopulation(int amount = 1)
-        => currentPopulation + amount <= maxPopulation;
+    {
+        NetworkedPlayer np = NetworkedPlayer.LocalInstance;
+        if (np != null) return np.CanAddPopulation(amount);
+        return currentPopulation + amount <= maxPopulation;
+    }
 
     public void AddPopulation(int amount = 1)
     {
-        currentPopulation = Mathf.Clamp(currentPopulation + amount, 0, maxPopulation);
+        NetworkedPlayer np = NetworkedPlayer.LocalInstance;
+        if (np != null && NetworkServer.active)
+        {
+            np.AddPopulation(amount);
+            currentPopulation = np.CurrentPopulation;
+            maxPopulation = np.MaxPopulation;
+        }
+        else
+        {
+            currentPopulation = Mathf.Clamp(currentPopulation + amount, 0, maxPopulation);
+        }
         ResourceUI.Instance?.RefreshPopulation(currentPopulation, maxPopulation);
     }
 
     public void RemovePopulation(int amount = 1)
     {
-        currentPopulation = Mathf.Max(0, currentPopulation - amount);
+        NetworkedPlayer np = NetworkedPlayer.LocalInstance;
+        if (np != null && NetworkServer.active)
+        {
+            np.RemovePopulation(amount);
+            currentPopulation = np.CurrentPopulation;
+            maxPopulation = np.MaxPopulation;
+        }
+        else
+        {
+            currentPopulation = Mathf.Max(0, currentPopulation - amount);
+        }
         ResourceUI.Instance?.RefreshPopulation(currentPopulation, maxPopulation);
     }
+
     // ─── Properties ──────────────────────────────────────────────────────
-    public int Food => food;
-    public int Wood => wood;
-    public int Gold => gold;
-    public int CurrentPopulation => currentPopulation;
-    public int MaxPopulation     => maxPopulation;
+    public int Food => (NetworkedPlayer.LocalInstance != null) ? NetworkedPlayer.LocalInstance.Food : food;
+    public int Wood => (NetworkedPlayer.LocalInstance != null) ? NetworkedPlayer.LocalInstance.Wood : wood;
+    public int Gold => (NetworkedPlayer.LocalInstance != null) ? NetworkedPlayer.LocalInstance.Gold : gold;
+    public int CurrentPopulation => (NetworkedPlayer.LocalInstance != null) ? NetworkedPlayer.LocalInstance.CurrentPopulation : currentPopulation;
+    public int MaxPopulation     => (NetworkedPlayer.LocalInstance != null) ? NetworkedPlayer.LocalInstance.MaxPopulation : maxPopulation;
 
     /// <summary>
     /// Clears the static Instance when this object dies.

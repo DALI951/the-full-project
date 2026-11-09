@@ -48,8 +48,11 @@ public class PauseMenu : MonoBehaviour
     {
         isPaused = !isPaused;
 
-        // Time.timeScale = 0 freezes all game logic
-        Time.timeScale = isPaused ? 0f : 1f;
+        // Time.timeScale = 0 freezes all game logic only in offline/single-player mode
+        if (!NetworkClient.active)
+        {
+            Time.timeScale = isPaused ? 0f : 1f;
+        }
 
         pausePanel?.SetActive(isPaused);
 
@@ -62,15 +65,23 @@ public class PauseMenu : MonoBehaviour
     {
         if (!isPaused) return;
         isPaused       = false;
-        Time.timeScale = 1f;
+        if (!NetworkClient.active)
+        {
+            Time.timeScale = 1f;
+        }
         pausePanel?.SetActive(false);
     }
 
     public void QuitToMenu()
     {
         Time.timeScale = 1f; // Always restore before scene change
-        if (NetworkServer.active || NetworkClient.active)
-            Mirror.NetworkManager.singleton?.StopHost();
+        if (Mirror.NetworkManager.singleton != null)
+        {
+            if (NetworkServer.active && NetworkClient.isConnected)
+                Mirror.NetworkManager.singleton.StopHost();
+            else if (NetworkClient.isConnected)
+                Mirror.NetworkManager.singleton.StopClient();
+        }
         SceneManager.LoadScene(mainMenuScene);
     }
 

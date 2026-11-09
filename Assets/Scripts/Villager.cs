@@ -17,9 +17,10 @@ public class Villager : Unit
     public Transform axe;
     public Transform knife;
     public Transform shovel;
+    public Transform hammer;
 
     [Header("Gathering")]
-    [SerializeField] private float gatherRange    = 1.2f;
+    [SerializeField] private float gatherRange    = 2.0f;
     [SerializeField] private float gatherInterval = 2f;
     [SerializeField] private int   gatherAmount   = 10;
     [SerializeField] private float orbitRadius    = 2.5f;
@@ -51,8 +52,11 @@ public class Villager : Unit
 
     protected override void Awake()
     {
-        unitName        = "Villager";
-        unitType        = "Villager";
+        if (string.IsNullOrEmpty(unitType) || unitType == "Unknown")
+            unitType = "Villager";
+        if (string.IsNullOrEmpty(unitName) || unitName == "Unit")
+            unitName = "Villager";
+
         unitDescription = "Gathers resources. Right-click a tree, mine or animal.";
         maxHealth       = 60;
         baseSpeed       = 3f;
@@ -61,8 +65,18 @@ public class Villager : Unit
         attackCooldown  = 1f;
         base.Awake();
 
+        if (gatherRange < 2.0f) gatherRange = 2.0f;
+        if (attackRange < 1.8f) attackRange = 1.8f;
+
+        if (string.IsNullOrEmpty(unitType) || unitType == "Unknown")
+            unitType = "Villager";
+        if (string.IsNullOrEmpty(unitName) || unitName == "Unit")
+            unitName = "Villager";
+
         if (animator == null)
             animator = GetComponent<Animator>();
+        if (animator == null)
+            animator = GetComponentInChildren<Animator>();
 
         if (agent != null)
         {
@@ -71,6 +85,49 @@ public class Villager : Unit
         }
 
         _lastVillagerPos = transform.position;
+    }
+
+    protected override void Start()
+    {
+        base.Start();
+
+        // Apply active civilization economy tech bonuses if spawned in an advanced age
+        if (AgeManager.Instance != null && AgeManager.Instance.CurrentAge > appliedAge)
+        {
+            ApplyAgeBonuses(AgeManager.Instance.CurrentAge);
+        }
+
+        // Attach compact procedural construction hammer and ensure gathering tools exist
+        AttachMedievalGear();
+    }
+
+    public override void AttachMedievalGear()
+    {
+        Transform mg = transform.Find("MedievalGear");
+        if (mg != null) Destroy(mg.gameObject);
+
+        if (hammer == null && axe != null)
+        {
+            hammer = axe;
+        }
+
+        HideTools();
+    }
+
+    public override void ApplyAgeBonuses(int newAge)
+    {
+        if (newAge <= appliedAge) return;
+
+        int oldGather = AgeManager.GetGatherBonus(appliedAge);
+        int newGather = AgeManager.GetGatherBonus(newAge);
+        gatherAmount += (newGather - oldGather);
+
+        float mult = AgeManager.GetVillagerSpeedMultiplier(newAge);
+        baseSpeed = 3.0f * mult;
+        RestoreSpeed();
+
+        appliedAge = newAge;
+        unitDescription = $"Gathers resources (+{AgeManager.GetGatherBonus(newAge)} Harvest). Speed x{mult:F2}.";
     }
 
     protected override void Update()
@@ -204,9 +261,20 @@ public class Villager : Unit
     {
         if (targetNode == null || targetNode.IsEmpty)
         {
+            RestoreSpeed();
             EnterState(VState.Idle);
             AutoFindNext();
             return;
+        }
+
+        // Temporary hunting speed boost so deer cannot easily escape
+        if (targetNode.RequiresKill && !targetNode.IsKilled)
+        {
+            if (agent != null) agent.speed = baseSpeed * 1.25f;
+        }
+        else
+        {
+            RestoreSpeed();
         }
 
         if (gatherSlot < 0)
@@ -214,7 +282,7 @@ public class Villager : Unit
             float dist = Dist(targetNode);
             if (dist <= gatherRange + orbitRadius)
             {
-                agent.ResetPath();
+                if (agent != null && agent.isOnNavMesh) agent.ResetPath();
                 if (targetNode != null)
                 {
                     int newSlot = targetNode.ReserveSlot(this);
@@ -237,7 +305,8 @@ public class Villager : Unit
         }
         else
         {
-            if (d <= gatherRange + 0.5f) EnterState(VState.Gathering);
+            if (d <= gatherRange + 0.5f || (gatherSlot >= 0 && AgentStopped() && d <= gatherRange + orbitRadius))
+                EnterState(VState.Gathering);
         }
     }
 
@@ -245,6 +314,7 @@ public class Villager : Unit
     {
         if (targetNode == null || targetNode.IsEmpty || targetNode.IsKilled)
         {
+            RestoreSpeed();
             if (targetNode != null && !targetNode.IsEmpty)
             { 
                 ShowKnife(false);
@@ -259,11 +329,16 @@ public class Villager : Unit
         float dist = Dist(targetNode);
         if (dist > attackRange)
         {
-            agent.SetDestination(targetNode.transform.position);
+            if (agent != null && agent.isOnNavMesh)
+            {
+                agent.speed = baseSpeed * 1.25f;
+                agent.stoppingDistance = 0.1f;
+                agent.SetDestination(targetNode.transform.position);
+            }
             return;
         }
 
-        agent.ResetPath();
+        if (agent != null && agent.isOnNavMesh) agent.ResetPath();
         Vector3 flatTarget = targetNode.transform.position;
         flatTarget.y = transform.position.y;
         transform.LookAt(flatTarget);
@@ -273,12 +348,16 @@ public class Villager : Unit
             lastActionTime = Time.time;
 
             PlayThrustAnim();
-            if (isServer) RpcPlayThrustAnim();
+            if (NetworkServer.active && NetworkClient.active) RpcPlayThrustAnim();
 
             targetNode.TakeDamage(attackDamage);
 
+            if (targetNode is AnimalNode a)
+                a.StopMoving();
+
             if (targetNode.IsKilled)
             {
+                RestoreSpeed();
                 // Animal died — hide knife, switch to gathering meat
                 ShowKnife(false);
                 
@@ -317,13 +396,13 @@ public class Villager : Unit
         }
 
         float dist = Dist(targetNode);
-        if (dist > gatherRange + 1.0f)
+        if (dist > gatherRange + orbitRadius + 0.5f)
         {
             MoveToGatherSlot();
             return;
         }
 
-        agent.ResetPath();
+        if (agent != null && agent.isOnNavMesh) agent.ResetPath();
         Vector3 flatTarget = targetNode.transform.position;
         flatTarget.y = transform.position.y; // Lock to same height
         transform.LookAt(flatTarget);
@@ -332,6 +411,19 @@ public class Villager : Unit
         {
             lastActionTime = Time.time;
             int gathered = targetNode.Gather(gatherAmount);
+
+            EffectManager.Instance?.PlayResourceGatherEffect(targetNode.transform.position + Vector3.up * 0.5f);
+            switch (targetNode.ResourceType)
+            {
+                case ResourceType.Wood: AudioManager.Instance?.PlayChop(); break;
+                case ResourceType.Gold: AudioManager.Instance?.PlayMine(); break;
+                case ResourceType.Food: AudioManager.Instance?.PlayGather(); break;
+            }
+
+            if (targetNode.IsEmpty && targetNode.ResourceType == ResourceType.Wood)
+            {
+                EffectManager.Instance?.PlayTreeFallEffect(targetNode.transform.position);
+            }
 
             NetworkedPlayer owner = NetworkedPlayer.Get(OwnerPlayerId);
             bool isLocalPlayer = OwnerPlayerId == PlayerColorManager.LocalPlayerIndex;
@@ -367,7 +459,7 @@ public class Villager : Unit
     {
         base.PerformAttack(target);
         PlayPunchAnim();
-        if (isServer) RpcPlayPunchAnim();
+        if (NetworkServer.active && NetworkClient.active) RpcPlayPunchAnim();
     }
 
     [ClientRpc]
@@ -380,7 +472,8 @@ public class Villager : Unit
     private void PlayPunchAnim()
     {
         if (animator == null) return;
-        if (animator.GetCurrentAnimatorStateInfo(0).IsName("Punching"))
+        var stateInfo = animator.GetCurrentAnimatorStateInfo(0);
+        if (stateInfo.IsName("Punching") || stateInfo.IsName("Punshing"))
             return;
         animator.SetBool("IsPunching", true);
         CancelInvoke(nameof(ResetPunch));
@@ -431,7 +524,11 @@ public class Villager : Unit
         if (NavMesh.SamplePosition(dest, out NavMeshHit hit, 3f, NavMesh.AllAreas))
             dest = hit.position;
 
-        agent.SetDestination(dest);
+        if (agent != null && agent.isOnNavMesh)
+        {
+            agent.stoppingDistance = 0.2f;
+            agent.SetDestination(dest);
+        }
         EnterState(VState.MovingToResource);
     }
 
@@ -469,13 +566,18 @@ public class Villager : Unit
     }
 
     private float Dist(ResourceNode node) =>
-        node == null ? float.MaxValue : Vector3.Distance(transform.position, node.transform.position);
+        node == null ? float.MaxValue : GetSurfaceDistance(node.transform);
 
     private bool AgentStopped() =>
         agent != null && agent.isOnNavMesh && !agent.pathPending && agent.remainingDistance <= agent.stoppingDistance;
 
     private void EnterState(VState next)
     {
+        if (next != VState.AttackingAnimal && (targetNode == null || !targetNode.RequiresKill || targetNode.IsKilled))
+        {
+            RestoreSpeed();
+        }
+
         // Always clear all work/attack animation bools when leaving any state
         if (animator != null)
         {
@@ -528,13 +630,20 @@ public class Villager : Unit
                 if (agent != null && agent.isOnNavMesh) agent.ResetPath();
                 ShowKnife(true);
                 break;
+            case VState.MovingToBuild:
+                HideTools();
+                break;
+            case VState.Building:
+                if (agent != null && agent.isOnNavMesh) agent.ResetPath();
+                ShowHammer(true);
+                break;
             case VState.MovingToCommand:
                 HideTools();
                 break;
         }
 
         // Sync persistent animation state to clients
-        if (isServer) ServerSyncAnimState();
+        if (NetworkServer.active) ServerSyncAnimState();
     }
 
     [Server]
@@ -588,25 +697,13 @@ public class Villager : Unit
                 animator.SetBool("IsThrusting", true);
                 ShowKnife(true);
                 break;
+            case 5:
+                ShowHammer(true);
+                break;
         }
     }
 
-    [ClientRpc]
-    private void RpcPlayDeathAnim()
-    {
-        if (isServer) return;
-        if (animator != null)
-        {
-            animator.SetBool("Die", true);
-            animator.SetBool("IsMoving", false);
-            animator.SetBool("IsChopping", false);
-            animator.SetBool("IsDigging", false);
-            animator.SetBool("IsGathering", false);
-            animator.SetBool("IsPunching", false);
-            animator.SetBool("IsThrusting", false);
-        }
-        HideTools();
-    }
+
 
     // ── Building ───────────────────────────────────────────────────────
 
@@ -616,7 +713,11 @@ public class Villager : Unit
         ClearWaypoints(); 
         targetSite = site;
         site.AssignBuilder(this);
-        agent.SetDestination(site.transform.position);
+        if (agent != null && agent.isOnNavMesh)
+        {
+            agent.stoppingDistance = 0.5f;
+            agent.SetDestination(site.transform.position);
+        }
         EnterState(VState.MovingToBuild);
     }
 
@@ -624,7 +725,8 @@ public class Villager : Unit
     {
         if (targetSite == null || targetSite.gameObject == null)
         { targetSite = null; EnterState(VState.Idle); return; }
-        if (Vector3.Distance(transform.position, targetSite.transform.position) <= 2.5f)
+        float dist = GetSurfaceDistance(targetSite.transform);
+        if (dist <= gatherRange + 0.5f || dist <= 2.5f)
             EnterState(VState.Building);
     }
 
@@ -632,7 +734,7 @@ public class Villager : Unit
     {
         if (targetSite == null || targetSite.gameObject == null || targetSite.IsComplete)
         { targetSite = null; EnterState(VState.Idle); return; }
-        agent.ResetPath();
+        if (agent != null && agent.isOnNavMesh) agent.ResetPath();
         Vector3 flatTarget = targetSite.transform.position;
         flatTarget.y = transform.position.y;
         transform.LookAt(flatTarget);
@@ -711,11 +813,9 @@ public class Villager : Unit
             animator.SetBool("IsThrusting", false);
         }
 
-        if (isServer) RpcPlayDeathAnim();
-
         if (agent != null)
         {
-            agent.isStopped = true;
+            if (agent.isOnNavMesh) agent.isStopped = true;
             agent.enabled = false;
         }
 
@@ -726,6 +826,12 @@ public class Villager : Unit
 
         Collider col = GetComponent<Collider>();
         if (col != null) col.enabled = false;
+    }
+
+    [ClientRpc]
+    private void RpcPlayDeathAnim()
+    {
+        // Death animation is now triggered uniformly via OnBeforeDestroy()
     }
 
     protected override float GetDestroyDelay() => deathAnimDuration;
@@ -743,6 +849,7 @@ public class Villager : Unit
         if (axe != null) axe.gameObject.SetActive(show);
         if (knife != null) knife.gameObject.SetActive(false);
         if (shovel != null) shovel.gameObject.SetActive(false);
+        if (hammer != null) hammer.gameObject.SetActive(false);
     }
 
     private void ShowKnife(bool show)
@@ -750,6 +857,7 @@ public class Villager : Unit
         if (knife != null) knife.gameObject.SetActive(show);
         if (axe != null) axe.gameObject.SetActive(false);
         if (shovel != null) shovel.gameObject.SetActive(false);
+        if (hammer != null) hammer.gameObject.SetActive(false);
     }
 
     private void ShowShovel(bool show)
@@ -757,6 +865,15 @@ public class Villager : Unit
         if (shovel != null) shovel.gameObject.SetActive(show);
         if (axe != null) axe.gameObject.SetActive(false);
         if (knife != null) knife.gameObject.SetActive(false);
+        if (hammer != null) hammer.gameObject.SetActive(false);
+    }
+
+    private void ShowHammer(bool show)
+    {
+        if (hammer != null) hammer.gameObject.SetActive(show);
+        if (axe != null) axe.gameObject.SetActive(false);
+        if (knife != null) knife.gameObject.SetActive(false);
+        if (shovel != null) shovel.gameObject.SetActive(false);
     }
 
     private void HideTools()
@@ -764,6 +881,7 @@ public class Villager : Unit
         if (axe != null) axe.gameObject.SetActive(false);
         if (knife != null) knife.gameObject.SetActive(false);
         if (shovel != null) shovel.gameObject.SetActive(false);
+        if (hammer != null) hammer.gameObject.SetActive(false);
     }
 
     public bool IsGathering => state == VState.Gathering

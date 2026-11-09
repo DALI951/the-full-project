@@ -46,11 +46,11 @@ public class ResourceNode : MonoBehaviour
             cc.center = new Vector3(0, 0.5f, 0);
         }
 
-        if (visualRoot == null)
+        if (visualRoot == null || visualRoot == gameObject)
         {
             Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
             if (renderers.Length > 0)
-                visualRoot = renderers[0].gameObject;
+                visualRoot = System.Array.Find(renderers, r => r != null && r.gameObject != gameObject)?.gameObject ?? renderers[0].gameObject;
         }
 
         if (visualRoot == gameObject)
@@ -185,6 +185,7 @@ public class ResourceNode : MonoBehaviour
     {
         if (!requiresKill || isDead || depleted) return;
         currentHealth -= amount;
+        if (this is AnimalNode a) a.StopMoving();
         if (currentHealth <= 0)
         {
             currentHealth = 0;
@@ -205,7 +206,8 @@ public class ResourceNode : MonoBehaviour
         if (depleted) return;
         depleted = true;
 
-        NetworkedPlayer.BroadcastResourceDepleted(transform.position);
+        if (Mirror.NetworkServer.active)
+            NetworkedPlayer.BroadcastResourceDepleted(transform.position);
 
         // Disable collider
         var col = GetComponent<Collider>();

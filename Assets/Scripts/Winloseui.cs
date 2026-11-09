@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using UnityEngine.SceneManagement;
+using Mirror;
 
 /// <summary>
 /// WinLoseUI — shows "Victory!" or "Defeat!" and pauses the game.
@@ -37,6 +38,7 @@ public class WinLoseUI : MonoBehaviour
         if (resultText) resultText.text = "Victory!";
         panel?.SetActive(true);
         Time.timeScale = 0f;
+        AudioManager.Instance?.PlayVictoryMusic();
     }
 
     public void ShowLose()
@@ -44,18 +46,54 @@ public class WinLoseUI : MonoBehaviour
         if (resultText) resultText.text = "Defeat!";
         panel?.SetActive(true);
         Time.timeScale = 0f;
+        AudioManager.Instance?.PlayDefeatMusic();
     }
 
     public void GoToMainMenu()
     {
+        AudioManager.Instance?.PlayButtonClick();
         Time.timeScale = 1f;
+
+        if (RTSNetworkManager.Instance != null)
+        {
+            if (NetworkServer.active && NetworkClient.isConnected)
+                RTSNetworkManager.Instance.StopHost();
+            else if (NetworkClient.isConnected)
+                RTSNetworkManager.Instance.StopClient();
+            else if (NetworkServer.active)
+                RTSNetworkManager.Instance.StopServer();
+        }
+        else if (NetworkManager.singleton != null)
+        {
+            if (NetworkServer.active && NetworkClient.isConnected)
+                NetworkManager.singleton.StopHost();
+            else if (NetworkClient.isConnected)
+                NetworkManager.singleton.StopClient();
+            else if (NetworkServer.active)
+                NetworkManager.singleton.StopServer();
+        }
+
         SceneManager.LoadScene(mainMenuScene);
     }
 
     public void Restart()
     {
+        AudioManager.Instance?.PlayButtonClick();
         Time.timeScale = 1f;
-        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+
+        if (NetworkServer.active)
+        {
+            if (RTSNetworkManager.Instance != null)
+                RTSNetworkManager.Instance.ServerChangeScene(SceneManager.GetActiveScene().name);
+            else if (NetworkManager.singleton != null)
+                NetworkManager.singleton.ServerChangeScene(SceneManager.GetActiveScene().name);
+            else
+                SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+        }
+        else
+        {
+            SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+        }
     }
 
     /// <summary>

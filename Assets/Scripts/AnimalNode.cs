@@ -1,5 +1,7 @@
 using UnityEngine;
-using System.Collections.Generic;public class AnimalNode : ResourceNode
+using System.Collections.Generic;
+
+public class AnimalNode : ResourceNode
 {
     [Header("Wandering")]
     [SerializeField] private float wanderRadius   = 6f;
@@ -13,70 +15,86 @@ using System.Collections.Generic;public class AnimalNode : ResourceNode
     [SerializeField] private float dieRotateSpeed = 360f;
 
     private Vector3 wanderTarget;
-    private float   lastWanderTime;
-private bool stopped;
-    private bool isDying;
-    private bool dieComplete;
-    private bool hasIsMovingParam;
+    private float   wanderTimer;
+    private bool    stopped;
+    private bool    isDying;
+    private bool    dieComplete;
+    private string  walkParamName = "IsWalking";
+    private bool    hasWalkAnim   = false;
     private Quaternion startRotation;
     private float    dieProgress;
     private static int s_nextHerdId = 0;
     private static readonly HashSet<string> s_warnedControllers = new HashSet<string>();
-    private static readonly Dictionary<int, Vector3> s_herdTargets  = new Dictionary<int, Vector3>();
-    private static readonly Dictionary<int, float>   s_herdNextMove = new Dictionary<int, float>();
-    private static readonly Dictionary<int, int>     s_herdCount    = new Dictionary<int, int>();
 
     [HideInInspector] public int herdId = -1;   // set by ResourceSpawner
-    private Vector3 personalOffset;             // keeps animals from stacking
+    [SerializeField] private Vector3 spawnOrigin;
+    private System.Random deterministicRng;
 
     public static int AllocateHerdId() => s_nextHerdId++;
 
-    private void Start()
-    {
-        if (herdId < 0) return;
-        if (!s_herdTargets.ContainsKey(herdId))
-            s_herdTargets[herdId]  = transform.position;
-        if (!s_herdNextMove.ContainsKey(herdId))
-            s_herdNextMove[herdId] = Time.time + wanderInterval;
-        if (!s_herdCount.ContainsKey(herdId))
-            s_herdCount[herdId]    = 0;
-        s_herdCount[herdId]++;
-    }
     protected override void Awake()
     {
         base.Awake();
-        // Fixed personal offset so animals in same herd don't stack
-        float pa = Random.Range(0f, 360f) * Mathf.Deg2Rad;
-        float pr = Random.Range(0.5f, 2f);
-        personalOffset = new Vector3(Mathf.Cos(pa) * pr, 0f, Mathf.Sin(pa) * pr);
+        spawnOrigin = transform.position;
+        wanderTarget = transform.position;
+
+        if (animator == null)
+            animator = GetComponentInChildren<Animator>();
+    }
+
+    private void Start()
+    {
+        if (spawnOrigin == Vector3.zero)
+            spawnOrigin = transform.position;
+
+        int seed = Mathf.RoundToInt(spawnOrigin.x * 100f) * 73856093 ^ Mathf.RoundToInt(spawnOrigin.z * 100f) * 19349663;
+        deterministicRng = new System.Random(seed);
+        wanderTimer = (float)(deterministicRng.NextDouble() * wanderInterval);
         wanderTarget = transform.position;
 
         if (animator == null)
             animator = GetComponentInChildren<Animator>();
 
-        // The controller is asked for "IsMoving" every frame below. DeerAnimator has
-        // ZERO parameters, so each SetBool logged an error every frame for every
-        // animal (~10k lines/min at 180 animals) and hashed a string per call.
-        // Resolve the capability ONCE here and skip the call when it is absent.
-        hasIsMovingParam = false;
+        hasWalkAnim = false;
         if (animator != null && animator.runtimeAnimatorController != null)
         {
-            var pars = animator.parameters;      // allocs once, in Awake, not per frame
+            var pars = animator.parameters;
             for (int i = 0; i < pars.Length; i++)
             {
-                if (pars[i].name == "IsMoving" && pars[i].type == AnimatorControllerParameterType.Bool)
-                { hasIsMovingParam = true; break; }
+                if (pars[i].name == "IsWalking" && pars[i].type == AnimatorControllerParameterType.Bool)
+                {
+                    walkParamName = "IsWalking";
+                    hasWalkAnim = true;
+                    break;
+                }
             }
-            if (!hasIsMovingParam)
+            if (!hasWalkAnim)
             {
-                // One warning per CONTROLLER, not per animal: 190 deer sharing
-                // DeerAnimator used to emit ~190 identical lines on every spawn.
+                for (int i = 0; i < pars.Length; i++)
+                {
+                    if (pars[i].name == "IsMoving" && pars[i].type == AnimatorControllerParameterType.Bool)
+                    {
+                        walkParamName = "IsMoving";
+                        hasWalkAnim = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!hasWalkAnim)
+            {
                 string ctrl = animator.runtimeAnimatorController.name;
                 if (s_warnedControllers.Add(ctrl))
-                    Debug.LogWarning($"[AnimalNode] Animator '{ctrl}' has no bool 'IsMoving' parameter " +
+                    Debug.LogWarning($"[AnimalNode] Animator '{ctrl}' has no bool 'IsWalking' or 'IsMoving' parameter " +
                                      "— walk animation disabled for this animal type.", this);
             }
         }
+    }
+
+    private void SetWalking(bool walking)
+    {
+        if (animator != null && hasWalkAnim)
+            animator.SetBool(walkParamName, walking);
     }
 
     private void Update()
@@ -104,40 +122,18 @@ private bool stopped;
 
         if (stopped || IsEmpty) return;
 
-        // Wandering
-        if (herdId >= 0 && s_herdTargets.ContainsKey(herdId))
+        // Wandering with deterministic RNG across server and clients
+        wanderTimer -= Time.deltaTime;
+        if (wanderTimer <= 0f)
         {
-            // First animal to reach the timer updates the shared herd target
-            if (Time.time >= s_herdNextMove[herdId])
-            {
-                s_herdNextMove[herdId] = Time.time + wanderInterval
-                                    + Random.Range(0f, wanderInterval * 0.3f);
-                Vector2 rand = Random.insideUnitCircle * wanderRadius;
-                Vector3 candidate = s_herdTargets[herdId] + new Vector3(rand.x, 0f, rand.y);
-                if (MapBoundary.Instance != null) candidate = MapBoundary.Instance.Clamp(candidate);
-                s_herdTargets[herdId] = candidate;
-            }
-            wanderTarget = s_herdTargets[herdId] + personalOffset;
-            if (MapBoundary.Instance != null) wanderTarget = MapBoundary.Instance.Clamp(wanderTarget);
-        }
-        else
-        {
-            // Solo wandering — original behaviour preserved
-            if (Time.time - lastWanderTime > wanderInterval)
-            {
-                lastWanderTime = Time.time;
-                Vector2 rand = Random.insideUnitCircle * wanderRadius;
-                Vector3 candidate = transform.position + new Vector3(rand.x, 0f, rand.y);
-                if (MapBoundary.Instance != null) candidate = MapBoundary.Instance.Clamp(candidate);
-                wanderTarget = candidate;
-            }
+            wanderTimer = wanderInterval;
+            PickNewTarget();
         }
 
         float distToTarget = Vector3.Distance(transform.position, wanderTarget);
         bool isMoving = distToTarget > 0.05f;
 
-        if (animator != null && hasIsMovingParam)
-            animator.SetBool("IsMoving", isMoving);
+        SetWalking(isMoving);
 
         if (isMoving)
         {
@@ -154,12 +150,23 @@ private bool stopped;
         }
     }
 
+    private void PickNewTarget()
+    {
+        if (deterministicRng == null) return;
+        float angle = (float)(deterministicRng.NextDouble() * System.Math.PI * 2.0);
+        float radius = (float)(deterministicRng.NextDouble() * wanderRadius);
+        Vector3 offset = new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
+        Vector3 candidate = spawnOrigin + offset;
+        if (MapBoundary.Instance != null)
+            candidate = MapBoundary.Instance.Clamp(candidate);
+        wanderTarget = candidate;
+    }
+
     public void StopMoving()
     {
         stopped = true;
         wanderTarget = transform.position;
-        if (animator != null && hasIsMovingParam)
-            animator.SetBool("IsMoving", false);
+        SetWalking(false);
     }
 
     protected override void OnKilled()
@@ -167,24 +174,8 @@ private bool stopped;
         base.OnKilled();
         StopMoving();
 
-        // Reset visual rotation before death so body falls correctly
-
         isDying = true;
         startRotation = transform.rotation;
         dieProgress = 0f;
-    }
-    protected override void OnDestroy()
-    {
-        base.OnDestroy();
-        if (herdId >= 0 && s_herdCount.ContainsKey(herdId))
-        {
-            s_herdCount[herdId]--;
-            if (s_herdCount[herdId] <= 0)
-            {
-                s_herdTargets.Remove(herdId);
-                s_herdNextMove.Remove(herdId);
-                s_herdCount.Remove(herdId);
-            }
-        }
     }
 }

@@ -42,6 +42,18 @@ public class ConstructionSite : NetworkBehaviour
             pendingOwnerId = v.OwnerPlayerId;
     }
 
+    private float GetBuilderDistance(Villager b)
+    {
+        if (b == null) return float.MaxValue;
+        Collider col = GetComponent<Collider>() ?? GetComponentInChildren<Collider>();
+        if (col != null && !(col is MeshCollider mc && !mc.convex))
+        {
+            Vector3 closest = col.ClosestPoint(b.transform.position);
+            return Vector2.Distance(new Vector2(b.transform.position.x, b.transform.position.z), new Vector2(closest.x, closest.z));
+        }
+        return Vector2.Distance(new Vector2(b.transform.position.x, b.transform.position.z), new Vector2(transform.position.x, transform.position.z));
+    }
+
     private void Update()
     {
         if (isComplete) return;
@@ -51,8 +63,8 @@ public class ConstructionSite : NetworkBehaviour
         int activeBuilders = 0;
         foreach (Villager b in builders)
         {
-            float dist = Vector3.Distance(b.transform.position, transform.position);
-            if (dist <= 3f) activeBuilders++;
+            float dist = GetBuilderDistance(b);
+            if (dist <= 2.5f || Vector3.Distance(b.transform.position, transform.position) <= 4.5f) activeBuilders++;
         }
 
         if (activeBuilders == 0) return;
@@ -69,24 +81,72 @@ public class ConstructionSite : NetworkBehaviour
     {
         if (isClient && !isServer) return;
         isComplete = true;
+        AudioManager.Instance?.PlayBuildingComplete();
+        EffectManager.Instance?.PlayBuildCompleteEffect(transform.position);
         if (completedPrefab != null)
         {
             GameObject built = Instantiate(completedPrefab,
                 transform.position, transform.rotation);
             int layer = LayerMask.NameToLayer("Building");
             SetLayerRecursive(built, layer);
-            if (pendingOwnerId >= 0 && built.TryGetComponent(out Building b))
-                b.SetOwner(pendingOwnerId);
+            int ownerId = pendingOwnerId >= 0 ? pendingOwnerId : PlayerColorManager.LocalPlayerIndex;
+            if (built.TryGetComponent(out Building b))
+                b.SetOwner(ownerId);
             if (NetworkServer.active)
                 NetworkServer.Spawn(built);
         }
-        foreach (Villager b in builders)
-            if (b != null) b.OnBuildingComplete();
+
+        bool isWall = (completedPrefab != null && completedPrefab.name.IndexOf("Wall", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                   || (!string.IsNullOrEmpty(buildingName) && buildingName.IndexOf("Wall", System.StringComparison.OrdinalIgnoreCase) >= 0);
+
+        List<Villager> currentBuilders = new List<Villager>(builders);
         builders.Clear();
+
+        foreach (Villager b in currentBuilders)
+        {
+            if (b == null) continue;
+            b.OnBuildingComplete();
+
+            if (isWall)
+            {
+                ConstructionSite nextSite = FindNearestUnfinishedWallSite(transform.position, 6f, b.OwnerPlayerId);
+                if (nextSite != null)
+                {
+                    nextSite.AssignBuilder(b);
+                    b.BuildAt(nextSite);
+                }
+            }
+        }
+
         if (NetworkServer.active)
             NetworkServer.Destroy(gameObject);
         else
             Destroy(gameObject);
+    }
+
+    private ConstructionSite FindNearestUnfinishedWallSite(Vector3 center, float maxDist, int ownerId)
+    {
+        ConstructionSite[] allSites = FindObjectsOfType<ConstructionSite>();
+        ConstructionSite nearest = null;
+        float minDistSq = maxDist * maxDist;
+
+        foreach (ConstructionSite site in allSites)
+        {
+            if (site == null || site == this || site.isComplete) continue;
+            if (ownerId >= 0 && site.pendingOwnerId >= 0 && site.pendingOwnerId != ownerId) continue;
+
+            bool isSiteWall = (site.completedPrefab != null && site.completedPrefab.name.IndexOf("Wall", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                           || (!string.IsNullOrEmpty(site.buildingName) && site.buildingName.IndexOf("Wall", System.StringComparison.OrdinalIgnoreCase) >= 0);
+            if (!isSiteWall) continue;
+
+            float distSq = (site.transform.position - center).sqrMagnitude;
+            if (distSq <= minDistSq)
+            {
+                minDistSq = distSq;
+                nearest = site;
+            }
+        }
+        return nearest;
     }
 
     private void SetLayerRecursive(GameObject go, int layer)
@@ -131,7 +191,8 @@ public class ConstructionSite : NetworkBehaviour
             foreach (Villager b in builders)
             {
                 if (b == null) continue;
-                if (Vector3.Distance(b.transform.position, transform.position) <= 3f)
+                float dist = GetBuilderDistance(b);
+                if (dist <= 2.5f || Vector3.Distance(b.transform.position, transform.position) <= 4.5f)
                     return true;
             }
             return false;

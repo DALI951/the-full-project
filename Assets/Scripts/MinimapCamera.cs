@@ -19,6 +19,7 @@ public class MinimapCamera : MonoBehaviour
 
     private void Awake()
     {
+        if (gameObject.CompareTag("MainCamera")) gameObject.tag = "Untagged";
         cam = GetComponent<Camera>();
 
         if (MapBoundary.Instance != null)

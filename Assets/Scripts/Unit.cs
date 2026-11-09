@@ -62,6 +62,18 @@ public class Unit : NetworkBehaviour
     private float nextTargetSearchTime = 0f;
     private const float TARGET_SEARCH_INTERVAL = 0.5f;
 
+    public float GetSurfaceDistance(Transform targetTransform)
+    {
+        if (targetTransform == null) return float.MaxValue;
+        Collider col = targetTransform.GetComponent<Collider>() ?? targetTransform.GetComponentInChildren<Collider>();
+        if (col != null && !(col is MeshCollider mc && !mc.convex))
+        {
+            Vector3 closest = col.ClosestPoint(transform.position);
+            return Vector2.Distance(new Vector2(transform.position.x, transform.position.z), new Vector2(closest.x, closest.z));
+        }
+        return Vector2.Distance(new Vector2(transform.position.x, transform.position.z), new Vector2(targetTransform.position.x, targetTransform.position.z));
+    }
+
     private void SnapToGround()
     {
         Vector3 origin = transform.position + Vector3.up * 5f;
@@ -88,7 +100,7 @@ public class Unit : NetworkBehaviour
     protected virtual void Awake()
     {
         agent         = GetComponent<NavMeshAgent>();
-        if (isServer) syncHealth = maxHealth;
+        if (isServer || !NetworkServer.active) syncHealth = maxHealth;
         currentHealth = maxHealth;
         agent.speed   = baseSpeed;
 
@@ -117,7 +129,30 @@ public class Unit : NetworkBehaviour
         MinimapSystem.Instance?.TrackUnit(this);
     }
 
-    protected virtual void Start() { }
+    protected int appliedAge = 1;
+    public int AppliedAge => appliedAge;
+
+    protected virtual void Start()
+    {
+        var fr = GetComponent<FogRevealer>();
+        if (fr == null) fr = gameObject.AddComponent<FogRevealer>();
+        fr.VisionRadius = (this is Cavalry) ? 16f : (this is Infantry ? 13f : 12f);
+
+        var hb = GetComponent<WorldHealthBar>();
+        if (hb == null) hb = gameObject.AddComponent<WorldHealthBar>();
+
+        // Apply active Age bonuses if spawned into an advanced age
+        if (AgeManager.Instance != null && AgeManager.Instance.CurrentAge > 1)
+        {
+            ApplyAgeBonuses(AgeManager.Instance.CurrentAge);
+        }
+
+        // Subscribe to civilization age advancements
+        AgeManager.OnAgeAdvanced += HandleAgeAdvanced;
+
+        // Attach 3D procedural medieval equipment
+        AttachMedievalGear();
+    }
 
     /// <summary>
     /// Units normally unregister in Die(), but a unit can also disappear without
@@ -126,18 +161,52 @@ public class Unit : NetworkBehaviour
     /// UnitSelectionManager.allUnitsList forever, so every drag-selection walked a
     /// growing list of ghosts. Unregistering here covers all death paths.
     /// </summary>
-    private void OnDestroy()
+    protected virtual void OnDestroy()
     {
+        AgeManager.OnAgeAdvanced -= HandleAgeAdvanced;
         UnitSelectionManager.Instance?.Unregister(this);
         MinimapSystem.Instance?.Untrack(transform);
         SelectionManager.Instance?.RemoveUnitFromDragSelection(this);
+    }
+
+    private void HandleAgeAdvanced(int newAge, string ageName)
+    {
+        if (this == null || gameObject == null || isDying) return;
+        if (newAge > appliedAge)
+        {
+            ApplyAgeBonuses(newAge);
+        }
+    }
+
+    public virtual void ApplyAgeBonuses(int newAge)
+    {
+        appliedAge = newAge;
+    }
+
+    public virtual void AttachMedievalGear()
+    {
+    }
+
+    public void AddBonusHealth(int bonusHp)
+    {
+        if (bonusHp <= 0) return;
+        maxHealth += bonusHp;
+        currentHealth = Mathf.Min(maxHealth, currentHealth + bonusHp);
+        if (isServer || !NetworkServer.active)
+            syncHealth = currentHealth;
+    }
+
+    public void AddBonusDamage(int bonusDmg)
+    {
+        if (bonusDmg <= 0) return;
+        attackDamage += bonusDmg;
     }
 
     protected virtual void Update()
     {
         if (isDying) return;
 
-        if (isServer)
+        if (isServer || !NetworkServer.active)
         {
             if (!_movementOverride)
             {
@@ -195,7 +264,7 @@ public class Unit : NetworkBehaviour
         }
         SnapToGround();
 
-        if (isClient)
+        if (isClient || !NetworkServer.active)
         {
             if (ownerPlayerId != PlayerColorManager.LocalPlayerIndex)
             {
@@ -273,18 +342,31 @@ public class Unit : NetworkBehaviour
             return;
         }
 
-        float dist = Vector3.Distance(transform.position, attackTarget.transform.position);
+        float dist = GetSurfaceDistance(attackTarget.transform);
         if (dist <= attackRange)
         {
-            agent.ResetPath();
-            transform.LookAt(attackTarget.transform);
+            if (agent != null && agent.isOnNavMesh) agent.ResetPath();
+            Vector3 lookDir = attackTarget.transform.position - transform.position;
+            lookDir.y = 0;
+            if (lookDir.sqrMagnitude > 0.001f)
+            {
+                Quaternion targetRot = Quaternion.LookRotation(lookDir);
+                transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRot, 720f * Time.deltaTime);
+            }
             if (Time.time - lastAttackTime >= attackCooldown)
             {
                 lastAttackTime = Time.time;
                 PerformAttack(attackTarget);
             }
         }
-        else agent.SetDestination(attackTarget.transform.position);
+        else
+        {
+            if (agent != null && agent.isOnNavMesh)
+            {
+                agent.stoppingDistance = Mathf.Max(0.1f, attackRange * 0.4f);
+                agent.SetDestination(attackTarget.transform.position);
+            }
+        }
     }
 
     private void ChaseAndAttackBuilding()
@@ -295,14 +377,17 @@ public class Unit : NetworkBehaviour
             buildingTarget = null;
             return;
         }
-        float dist = Vector3.Distance(transform.position, buildingTarget.transform.position);
-        if (dist <= attackRange + 1.5f)
+        float dist = GetSurfaceDistance(buildingTarget.transform);
+        if (dist <= attackRange + 0.75f)
         {
-            agent.ResetPath();
-            transform.LookAt(new Vector3(
-                buildingTarget.transform.position.x,
-                transform.position.y,
-                buildingTarget.transform.position.z));
+            if (agent != null && agent.isOnNavMesh) agent.ResetPath();
+            Vector3 lookDir = buildingTarget.transform.position - transform.position;
+            lookDir.y = 0;
+            if (lookDir.sqrMagnitude > 0.001f)
+            {
+                Quaternion targetRot = Quaternion.LookRotation(lookDir);
+                transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRot, 720f * Time.deltaTime);
+            }
             if (Time.time - lastAttackTime >= attackCooldown)
             {
                 lastAttackTime = Time.time;
@@ -311,7 +396,11 @@ public class Unit : NetworkBehaviour
         }
         else
         {
-            agent.SetDestination(buildingTarget.transform.position);
+            if (agent != null && agent.isOnNavMesh)
+            {
+                agent.stoppingDistance = 0.1f;
+                agent.SetDestination(buildingTarget.transform.position);
+            }
         }
     }
 
@@ -344,11 +433,15 @@ public class Unit : NetworkBehaviour
     protected virtual void PerformAttack(Unit target)
     {
         target.TakeDamage(attackDamage, this);
+        AudioManager.Instance?.PlaySwordHit();
+        EffectManager.Instance?.PlayHitEffect(target.transform.position + Vector3.up * 0.8f);
     }
 
     protected virtual void PerformBuildingAttack(Building target)
     {
         target.TakeDamage(attackDamage);
+        AudioManager.Instance?.PlaySwordHit();
+        EffectManager.Instance?.PlayHitEffect(target.transform.position + Vector3.up * 0.8f);
     }
 
     public void SetAttackTarget(Unit t) { _movementOverride = false; attackTarget = t; }
@@ -405,7 +498,18 @@ public class Unit : NetworkBehaviour
         syncHealth -= amount;
         currentHealth = syncHealth;
 
-        if (isServer) RpcOnTakeDamage(amount, transform.position);
+        if (NetworkServer.active && NetworkClient.active)
+            RpcOnTakeDamage(amount, transform.position);
+        else if (!NetworkServer.active)
+        {
+            EffectManager.Instance?.PlayHitEffect(transform.position);
+            if (damageTextPrefab != null)
+            {
+                FloatingDamageText dmg = Instantiate(damageTextPrefab, transform.position + Vector3.up * 1.5f, Quaternion.identity)
+                    .GetComponent<FloatingDamageText>();
+                if (dmg != null) dmg.SetDamage(amount);
+            }
+        }
 
         if (syncHealth <= 0) { Die(); return; }
 
@@ -518,7 +622,15 @@ public class Unit : NetworkBehaviour
         if (isDying) return;
         isDying = true;
 
-        if (isServer) RpcOnDeath(transform.position);
+        if (NetworkServer.active && NetworkClient.active)
+        {
+            RpcOnDeath(transform.position);
+            RpcPlayDeath();
+        }
+        else if (!NetworkServer.active)
+        {
+            EffectManager.Instance?.PlayDeathEffect(transform.position);
+        }
 
         Collider[] nearby = Physics.OverlapSphere(transform.position, 20f);
         foreach (Collider c in nearby)
@@ -529,12 +641,25 @@ public class Unit : NetworkBehaviour
                 u.FindNextTarget();
         }
 
+        AgeManager.OnAgeAdvanced -= HandleAgeAdvanced;
         UnitSelectionManager.Instance?.Unregister(this);
         MinimapSystem.Instance?.Untrack(transform);
         if (isSelected) UnitInfoUI.Instance?.Hide();
 
-        if (agent != null && agent.isOnNavMesh)
-            agent.isStopped = true;
+        if (agent != null)
+        {
+            if (agent.isOnNavMesh) agent.isStopped = true;
+            agent.enabled = false;
+        }
+
+        var col = GetComponent<Collider>();
+        if (col != null) col.enabled = false;
+
+        if (selectionCircle != null) selectionCircle.SetActive(false);
+
+        var hbCanvas = GetComponentInChildren<Canvas>();
+        if (hbCanvas != null) hbCanvas.gameObject.SetActive(false);
+
         buildingTarget = null;
         NetworkedPlayer owner = NetworkedPlayer.Get(ownerPlayerId);
         if (owner != null) owner.RemovePopulation(1);
@@ -542,11 +667,58 @@ public class Unit : NetworkBehaviour
             ResourceManager.Instance?.RemovePopulation(1);
         else
             EnemyAI.Instance?.RemovePopulation(1);
+
         OnBeforeDestroy();
+
+        float delay = GetDestroyDelay();
+        if (delay > 0f)
+        {
+            StartCoroutine(DestroyAfterDelay(delay));
+        }
+        else
+        {
+            if (NetworkServer.active)
+                NetworkServer.Destroy(gameObject);
+            else
+                Destroy(gameObject);
+        }
+    }
+
+    private IEnumerator DestroyAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
         if (NetworkServer.active)
             NetworkServer.Destroy(gameObject);
         else
             Destroy(gameObject);
+    }
+
+    [ClientRpc]
+    private void RpcPlayDeath()
+    {
+        if (isServer) return;
+        isDying = true;
+
+        if (agent != null)
+        {
+            if (agent.isOnNavMesh) agent.isStopped = true;
+            agent.enabled = false;
+        }
+
+        var col = GetComponent<Collider>();
+        if (col != null) col.enabled = false;
+
+        if (selectionCircle != null) selectionCircle.SetActive(false);
+
+        var hbCanvas = GetComponentInChildren<Canvas>();
+        if (hbCanvas != null) hbCanvas.gameObject.SetActive(false);
+
+        AgeManager.OnAgeAdvanced -= HandleAgeAdvanced;
+        UnitSelectionManager.Instance?.Unregister(this);
+        MinimapSystem.Instance?.Untrack(transform);
+        if (isSelected) UnitInfoUI.Instance?.Hide();
+
+        OnBeforeDestroy();
     }
 
     public void SetHuntTarget(string unitName)
@@ -569,6 +741,7 @@ public class Unit : NetworkBehaviour
         if (agent == null || !agent.isOnNavMesh)
             return;
 
+        agent.stoppingDistance = 0.5f;
         agent.SetDestination(dest);
     }
 
@@ -634,6 +807,7 @@ public class Unit : NetworkBehaviour
         }
     }
 
+    public bool     IsDead            => isDying || currentHealth <= 0;
     public bool     HasActiveTarget   => attackTarget != null || buildingTarget != null;
     public bool     IsInsideBuilding  => suppressRenderers;
     public string   UnitName          => unitName;

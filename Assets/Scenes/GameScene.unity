@@ -20,11 +20,11 @@ RenderSettings:
   m_FogDensity: 0.01
   m_LinearFogStart: 0
   m_LinearFogEnd: 300
-  m_AmbientSkyColor: {r: 0.212, g: 0.227, b: 0.259, a: 1}
-  m_AmbientEquatorColor: {r: 0.114, g: 0.125, b: 0.133, a: 1}
-  m_AmbientGroundColor: {r: 0.047, g: 0.043, b: 0.035, a: 1}
+  m_AmbientSkyColor: {r: 0.68, g: 0.74, b: 0.85, a: 1}
+  m_AmbientEquatorColor: {r: 0.55, g: 0.52, b: 0.45, a: 1}
+  m_AmbientGroundColor: {r: 0.32, g: 0.3, b: 0.25, a: 1}
   m_AmbientIntensity: 1
-  m_AmbientMode: 0
+  m_AmbientMode: 1
   m_SubtractiveShadowColor: {r: 0.42, g: 0.478, b: 0.627, a: 1}
   m_SkyboxMaterial: {fileID: 10304, guid: 0000000000000000f000000000000000, type: 0}
   m_HaloStrength: 0.5
@@ -512,9 +512,9 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 513049878}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 110, y: -72}
   m_SizeDelta: {x: 220, y: 20}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &80233328
@@ -2355,9 +2355,9 @@ RectTransform:
   - {fileID: 625625305}
   m_Father: {fileID: 513049878}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 110, y: -121}
   m_SizeDelta: {x: 220, y: 14}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &412931340
@@ -3088,7 +3088,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 5.3, y: 0}
+  m_AnchoredPosition: {x: 5.300003, y: 0}
   m_SizeDelta: {x: 200, y: 30}
   m_Pivot: {x: 0, y: 0}
 --- !u!114 &560497449
@@ -4279,6 +4279,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   fogPlaneRenderer: {fileID: 1385633304}
+  fogHeight: 0.06
+  textureResolution: 256
+  initialRevealRadius: 22
   unexploredColor: {r: 0, g: 0, b: 0, a: 1}
   exploredColor: {r: 0, g: 0, b: 0, a: 0.55}
   visibleColor: {r: 0, g: 0, b: 0, a: 0}
@@ -5194,8 +5197,8 @@ Light:
   serializedVersion: 10
   m_Type: 1
   m_Shape: 0
-  m_Color: {r: 1, g: 0.75, b: 0.45, a: 1}
-  m_Intensity: 1.3
+  m_Color: {r: 1, g: 0.88, b: 0.72, a: 1}
+  m_Intensity: 1.25
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208
@@ -5461,6 +5464,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   homeSitePrefab: {fileID: 9037061521975791233, guid: 8d0aafcec2fd78a4f8912a08ed054e75, type: 3}
   barracksPrefab: {fileID: 766086617907726373, guid: 1d0a5ff83bd0b7d44973d7a5f30679c9, type: 3}
+  villagerPrefab: {fileID: 0}
+  startingVillagerCount: 3
   homeSiteOffset: -6
   barracksOffset: 5
   inwardFromEdge: 4
@@ -5727,6 +5732,31 @@ MonoBehaviour:
   treePrefab: {fileID: 790901911832693335, guid: 6e4357db79b632b479ffdf4abdfcf4f2, type: 3}
   minePrefab: {fileID: 8761987336585670837, guid: 86aaa997374cfc34aa7e1d78f71ec0a5, type: 3}
   animalPrefab: {fileID: 6157279952817016891, guid: 966ff4ca901bad2429aef846900ff969, type: 3}
+  baseClearRadius: 22
+  startInnerClearRadius: 14.5
+  buildingClearance: 4.5
+  targetForestGroves: 15
+  treesPerGroveMin: 10
+  treesPerGroveMax: 14
+  targetStrategicGold: 12
+  targetWildHerds: 7
+  deerPerHerd: 5
+  startingTrees: 13
+  startingMines: 2
+  startingDeer: 5
+  startWoodlineDistance: 17.5
+  startGoldDistance: 16.5
+  startDeerDistance: 15.5
+  minTreeDistance: 2.4
+  minMineDistance: 3.2
+  minAnimalDistance: 2.1
+  ignoreNavMesh: 0
+  randomYaw: 1
+  minScale: 0.82
+  maxScale: 1.22
+  edgeMarginFraction: 0.04
+  randomSeed: 12345
+  logCoverageReport: 1
   areaPerTree: 90
   areaPerMine: 420
   areaPerAnimal: 210
@@ -5737,18 +5767,10 @@ MonoBehaviour:
   startMinRadius: 11
   startMaxRadius: 34
   extraGap: 1.6
-  buildingClearance: 4.5
-  ignoreNavMesh: 0
-  randomYaw: 1
-  minScale: 0.82
-  maxScale: 1.22
-  edgeMarginFraction: 0.04
   groveFraction: 0.45
   groveSizeMin: 4
   groveSizeMax: 9
   groveRadius: 11
-  randomSeed: 12345
-  logCoverageReport: 1
 --- !u!4 &859915731
 Transform:
   m_ObjectHideFlags: 0
@@ -6715,9 +6737,9 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 513049878}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 110, y: -14}
   m_SizeDelta: {x: 220, y: 28}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1086939863
@@ -7742,9 +7764,9 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 513049878}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 110, y: -45}
   m_SizeDelta: {x: 220, y: 22}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1311150868
@@ -9136,9 +9158,9 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 513049878}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 110, y: -98}
   m_SizeDelta: {x: 220, y: 20}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1509809639
@@ -9609,6 +9631,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   homeSitePrefab: {fileID: 9037061521975791233, guid: 8d0aafcec2fd78a4f8912a08ed054e75, type: 3}
   barracksPrefab: {fileID: 766086617907726373, guid: 1d0a5ff83bd0b7d44973d7a5f30679c9, type: 3}
+  villagerPrefab: {fileID: 0}
+  startingVillagerCount: 3
   homeSiteOffset: -6
   barracksOffset: 5
   inwardFromEdge: 4
@@ -9664,7 +9688,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0.45, y: 0}
+  m_AnchoredPosition: {x: 0.4499998, y: 0}
   m_SizeDelta: {x: 0.9, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1661882616
@@ -12351,7 +12375,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 47.6, y: 0}
+  m_AnchoredPosition: {x: 47.600006, y: 0}
   m_SizeDelta: {x: 222, y: 180}
   m_Pivot: {x: 0, y: 0}
 --- !u!114 &2003607006
@@ -13117,7 +13141,7 @@ Canvas:
   serializedVersion: 3
   m_RenderMode: 0
   m_Camera: {fileID: 0}
-  m_PlaneDistance: 100
+  m_PlaneDistance: 0.45000002
   m_PixelPerfect: 0
   m_ReceivesEvents: 1
   m_OverrideSorting: 0

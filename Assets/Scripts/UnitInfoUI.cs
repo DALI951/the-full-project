@@ -3,7 +3,10 @@ using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
 
-/// <summary>UnitInfoUI v11 — X button wired, null guards throughout.</summary>
+/// <summary>
+/// UnitInfoUI — unit inspection panel with AoE4 Royal Slate-Navy & Burnished Gold styling,
+/// providing rich unit class designations and tactical combat role summaries.
+/// </summary>
 public class UnitInfoUI : MonoBehaviour
 {
     public static UnitInfoUI Instance { get; private set; }
@@ -45,6 +48,49 @@ public class UnitInfoUI : MonoBehaviour
         if (trackedUnit != null) RefreshHealth();
     }
 
+    // ─── AoE4 Unit Class Information ─────────────────────────────────────
+
+    public static (string classTitle, string description) GetAoE4UnitDetails(Unit unit)
+    {
+        if (unit == null) return ("", "");
+
+        if (unit is Builder || (unit.UnitType != null && unit.UnitType.Contains("Builder")) || (unit.UnitName != null && unit.UnitName.Contains("Builder")))
+        {
+            return (
+                "<color=#E5C158><b>MASTER BUILDER & ENGINEER</b></color>",
+                "Worker & Builder — Gathers Food, Wood, Gold & constructs fortifications. Dedicated construction specialist with accelerated building speed."
+            );
+        }
+        if (unit is Villager || (unit.UnitType != null && unit.UnitType.Contains("Villager")) || (unit.UnitName != null && unit.UnitName.Contains("Villager")))
+        {
+            return (
+                "<color=#E5C158><b>WORKER & VILLAGER</b></color>",
+                "Worker & Builder — Gathers Food, Wood, Gold & constructs fortifications. The economic backbone of the empire."
+            );
+        }
+        if (unit is Infantry || (unit.UnitType != null && unit.UnitType.Contains("Infantry")) || (unit.UnitName != null && unit.UnitName.Contains("Infantry")))
+        {
+            return (
+                "<color=#E5C158><b>HEAVY MELEE INFANTRY</b></color>",
+                "Heavy Melee Infantry — Strong vs Spearmen & Buildings. Armed with broadsword and reinforced shield for frontline combat."
+            );
+        }
+        if (unit is Cavalry || (unit.UnitType != null && unit.UnitType.Contains("Cavalry")) || (unit.UnitName != null && unit.UnitName.Contains("Cavalry")))
+        {
+            return (
+                "<color=#E5C158><b>ROYAL LANCER CAVALRY</b></color>",
+                "Royal Lancer Cavalry — Fast flanking shock unit. High mobility and devastating charge damage against unfortified enemies."
+            );
+        }
+
+        string rawType = string.IsNullOrEmpty(unit.UnitType) ? unit.UnitName : unit.UnitType;
+        string title = $"<color=#E5C158><b>{SanitizeName(rawType).ToUpper()}</b></color>";
+        string desc = !string.IsNullOrEmpty(unit.UnitDescription)
+            ? unit.UnitDescription
+            : "Imperial Realm Unit — Trained at specialized kingdom military structures.";
+        return (title, desc);
+    }
+
     // ─── Public API ──────────────────────────────────────────────────────
 
     public void ShowUnit(Unit unit)
@@ -60,10 +106,12 @@ public class UnitInfoUI : MonoBehaviour
         multiGroup?.SetActive(false);
         ClearTypeLines();
 
-        if (nameText)        nameText.text        = unit.UnitName;
-        if (playerNameText) playerNameText.text = "";
-        if (typeText)        typeText.text         = unit.UnitType;
-        if (descriptionText) descriptionText.text  = unit.UnitDescription;
+        var (classTitle, aoe4Desc) = GetAoE4UnitDetails(unit);
+
+        if (nameText)        nameText.text        = SanitizeName(unit.UnitName);
+        if (playerNameText)  playerNameText.text  = "";
+        if (typeText)        typeText.text        = classTitle;
+        if (descriptionText) descriptionText.text = aoe4Desc;
 
         RefreshHealth();
         if (panel != null) panel.SetActive(true);
@@ -93,10 +141,12 @@ public class UnitInfoUI : MonoBehaviour
         multiGroup?.SetActive(false);
         ClearTypeLines();
 
-        if (nameText)        nameText.text        = unit.UnitName;
-        if (playerNameText)  playerNameText.text  = $"Player {unit.OwnerPlayerId + 1}"; // placeholder
-        if (typeText)        typeText.text         = unit.UnitType;
-        if (descriptionText) descriptionText.text  = unit.UnitDescription;
+        var (classTitle, aoe4Desc) = GetAoE4UnitDetails(unit);
+
+        if (nameText)        nameText.text        = SanitizeName(unit.UnitName);
+        if (playerNameText)  playerNameText.text  = $"<color=#FF7777>Hostile Realm (Player {unit.OwnerPlayerId + 1})</color>";
+        if (typeText)        typeText.text        = classTitle;
+        if (descriptionText) descriptionText.text = aoe4Desc;
 
         RefreshHealth();
         BuildMenuUI.Instance?.Hide();
@@ -118,19 +168,20 @@ public class UnitInfoUI : MonoBehaviour
         {
             if (u == null) continue;
             total++;
-            if (!counts.ContainsKey(u.UnitName)) counts[u.UnitName] = 0;
-            counts[u.UnitName]++;
+            string clean = SanitizeName(u.UnitName);
+            if (!counts.ContainsKey(clean)) counts[clean] = 0;
+            counts[clean]++;
         }
 
         if (totalCountText != null)
-            totalCountText.text = $"{total} units selected";
+            totalCountText.text = $"<color=#E5C158><b>{total} Units Selected</b></color>";
 
         foreach (var kvp in counts)
         {
             if (typeLinePrefab == null || typeListContainer == null) break;
             GameObject line = Instantiate(typeLinePrefab, typeListContainer);
             TMP_Text txt    = line.GetComponent<TMP_Text>();
-            if (txt != null) txt.text = $"{kvp.Key}  ×  {kvp.Value}";
+            if (txt != null) txt.text = $"<color=#E0C068>{kvp.Key}</color>  ×  <b>{kvp.Value}</b>";
             typeLines.Add(line);
         }
 
@@ -162,8 +213,16 @@ public class UnitInfoUI : MonoBehaviour
     {
         if (trackedUnit == null) return;
         float ratio = (float)trackedUnit.CurrentHealth / Mathf.Max(1, trackedUnit.MaxHealth);
-        if (healthText)    healthText.text         = $"HP  {trackedUnit.CurrentHealth} / {trackedUnit.MaxHealth}";
+        if (healthText)    healthText.text         = $"<color=#E5C158>HP</color>  {trackedUnit.CurrentHealth} / {trackedUnit.MaxHealth}";
         if (healthBarFill) healthBarFill.fillAmount = Mathf.Clamp01(ratio);
+    }
+
+    public static string SanitizeName(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "";
+        string clean = raw.Replace("(Clone)", "").Trim();
+        if (clean == "Animal") clean = "Deer";
+        return clean;
     }
 
     private void ClearTypeLines()
@@ -174,10 +233,6 @@ public class UnitInfoUI : MonoBehaviour
 
     /// <summary>
     /// Clears the static Instance when this object dies.
-    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
-    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
-    /// dispatch into this dead object and throw MissingReferenceException the next
-    /// time the scene reloads. Clearing the field makes it a true null.
     /// </summary>
     private void OnDestroy()
     {

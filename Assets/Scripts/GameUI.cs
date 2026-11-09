@@ -4,9 +4,8 @@ using UnityEngine.UI;
 using TMPro;
 
 /// <summary>
-/// GameUI — building spawn panel + live training status.
-/// Training UI always updates as long as a building is tracked,
-/// even when the panel is closed (so it's fresh on re-open).
+/// GameUI — building spawn panel + live training status with AoE4 Royal Slate-Navy & Gold styling,
+/// rich unit combat role tooltips, and Town Center Age Advancement support.
 /// </summary>
 public class GameUI : MonoBehaviour
 {
@@ -53,6 +52,19 @@ public class GameUI : MonoBehaviour
         LoadingScreen.Instance?.Hide();
     }
 
+    private void Start()
+    {
+        AudioManager.Instance?.PlayGameMusic();
+    }
+
+    public static string SanitizeName(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "";
+        string clean = raw.Replace("(Clone)", "").Trim();
+        if (clean == "Animal") clean = "Deer";
+        return clean;
+    }
+
     private void Update()
     {
         // Slot 1 panel — always shows HomeSite training
@@ -78,7 +90,18 @@ public class GameUI : MonoBehaviour
         activeBuilding = building;
 
         if (buildingNameText != null)
-            buildingNameText.text = building.BuildingName;
+        {
+            string bName = SanitizeName(building.BuildingName);
+            if (building is HomeSite)
+            {
+                string ageStr = AoE4HUDThemer.GetCurrentAgeDisplay();
+                buildingNameText.text = $"<color=#E5C158><b>{bName}</b></color> <size=80%>({ageStr})</size>";
+            }
+            else
+            {
+                buildingNameText.text = $"<color=#E5C158><b>{bName}</b></color>";
+            }
+        }
 
         RebuildSpawnButtons(building);
 
@@ -106,11 +129,11 @@ public class GameUI : MonoBehaviour
         if (trainingProgressFill) trainingProgressFill.fillAmount = pct;
         if (trainingStatusText)
             trainingStatusText.text = string.IsNullOrEmpty(label)
-                ? "" : $"{b.BuildingName}: {label}  {(pct * 100f):F0}%";
+                ? "" : $"<color=#E5C158><b>{b.BuildingName}:</b></color> {label}  <color=#A0E0A0>{(pct * 100f):F0}%</color>";
 
         string[] queue = b.GetQueueLabels();
         if (trainingQueueText)
-            trainingQueueText.text = queue.Length == 0 ? "" : "Next: " + string.Join(" | ", queue);
+            trainingQueueText.text = queue.Length == 0 ? "" : "<color=#D4AF37>Next:</color> " + string.Join(" | ", queue);
     }
 
     private void ClearTrainingUI()
@@ -135,10 +158,10 @@ public class GameUI : MonoBehaviour
         if (trainingProgressFill2) trainingProgressFill2.fillAmount = pct;
         if (trainingStatusText2)
             trainingStatusText2.text = string.IsNullOrEmpty(label)
-                ? "" : $"{b.BuildingName}: {label}  {(pct * 100f):F0}%";
+                ? "" : $"<color=#E5C158><b>{b.BuildingName}:</b></color> {label}  <color=#A0E0A0>{(pct * 100f):F0}%</color>";
         string[] queue = b.GetQueueLabels();
         if (trainingQueueText2)
-            trainingQueueText2.text = queue.Length == 0 ? "" : "Next: " + string.Join(" | ", queue);
+            trainingQueueText2.text = queue.Length == 0 ? "" : "<color=#D4AF37>Next:</color> " + string.Join(" | ", queue);
     }
 
     private void ClearTrainingUISlot2()
@@ -167,18 +190,47 @@ public class GameUI : MonoBehaviour
             spawnedButtons.Add(btnObj);
 
             TMP_Text txt = btnObj.GetComponentInChildren<TMP_Text>();
-        if (txt != null)
-            txt.text = $"Train\n{label}";
+            if (txt != null)
+                txt.text = $"Train\n{label}";
 
-        Button btn = btnObj.GetComponent<Button>();
-        if (btn != null)
-            btn.onClick.AddListener(() => OnSpawnButtonClicked(capturedIndex));
+            Button btn = btnObj.GetComponent<Button>();
+            if (btn != null)
+                btn.onClick.AddListener(() => OnSpawnButtonClicked(capturedIndex));
 
-        // Hover tooltip
-        Unit unitComp = prefabs[capturedIndex] != null
-            ? prefabs[capturedIndex].GetComponent<Unit>() : null;
-        string tip = BuildSpawnTooltip(building, capturedIndex, label, unitComp);
-        AttachHoverTooltip(btnObj, tip);
+            // Hover tooltip
+            Unit unitComp = prefabs[capturedIndex] != null
+                ? prefabs[capturedIndex].GetComponent<Unit>() : null;
+            string tip = BuildSpawnTooltip(building, capturedIndex, label, unitComp);
+            AttachHoverTooltip(btnObj, tip);
+        }
+
+        // Town Center / HomeSite can also advance Age directly from its panel!
+        int curAge = AgeManager.Instance != null ? AgeManager.Instance.CurrentAge : 1;
+        if (building is HomeSite && curAge < AgeManager.AGE_IMPERIAL)
+        {
+            GameObject ageBtnObj = Instantiate(spawnButtonPrefab, buttonContainer);
+            spawnedButtons.Add(ageBtnObj);
+
+            TMP_Text ageTxt = ageBtnObj.GetComponentInChildren<TMP_Text>();
+            if (ageTxt != null)
+            {
+                ageTxt.text = $"<color=#E5C158><b>Advance\n{AoE4HUDThemer.GetNextAgeShortName()}</b></color>";
+            }
+
+            Button ageBtn = ageBtnObj.GetComponent<Button>();
+            if (ageBtn != null)
+            {
+                ageBtn.onClick.AddListener(() =>
+                {
+                    if (AoE4HUDThemer.TryAdvanceAge())
+                    {
+                        ShowBuildingUI(building);
+                    }
+                });
+            }
+
+            string ageTip = AoE4HUDThemer.GetAdvanceAgeTooltip();
+            AttachHoverTooltip(ageBtnObj, ageTip);
         }
     }
 
@@ -213,12 +265,25 @@ public class GameUI : MonoBehaviour
     {
         var (f, w, g) = b.GetUnitCost(idx);
         float t       = b.GetUnitTrainingTime(idx);
-        string lines  = $"<b>{unitName}</b>";
-        if (unit != null && !string.IsNullOrEmpty(unit.UnitDescription))
-            lines += $"\n{unit.UnitDescription}";
+        string lines  = $"<b><color=#E5C158>{unitName}</color></b>";
+
+        string richDesc = unit != null ? unit.UnitDescription : "";
+        if (unitName.Contains("Infantry"))
+            richDesc = "Heavy Melee Infantry — Strong vs Spearmen & Buildings";
+        else if (unitName.Contains("Cavalry"))
+            richDesc = "Royal Lancer Cavalry — Fast flanking shock unit";
+        else if (unitName.Contains("Villager"))
+            richDesc = "Worker & Builder — Gathers Food, Wood, Gold & constructs fortifications";
+        else if (unitName.Contains("Builder"))
+            richDesc = "Master Builder & Engineer — Specialized in rapid construction";
+
+        if (!string.IsNullOrEmpty(richDesc))
+            lines += $"\n<color=#B0C4DE>{richDesc}</color>";
+
         if (unit != null)
-            lines += $"\nHP:{unit.MaxHealth}\nSpd:{unit.BaseSpeed:F1}\nAtk:{unit.AttackDamage}\nRange:{unit.AttackRange:F1}";
-        lines += $"\n{FormatCost(f, w, g)}\n{t:F0}s";
+            lines += $"\nHP:{unit.MaxHealth} | Spd:{unit.BaseSpeed:F1} | Atk:{unit.AttackDamage} | Range:{unit.AttackRange:F1}";
+
+        lines += $"\n{FormatCost(f, w, g)} | {t:F0}s";
         return lines;
     }
 
@@ -244,10 +309,6 @@ public class GameUI : MonoBehaviour
 
     /// <summary>
     /// Clears the static Instance when this object dies.
-    /// A destroyed MonoBehaviour is NOT a real CLR null (Unity fake-null only affects
-    /// == and !=). Any "Instance?.Foo()" call site elsewhere would therefore still
-    /// dispatch into this dead object and throw MissingReferenceException the next
-    /// time the scene reloads. Clearing the field makes it a true null.
     /// </summary>
     private void OnDestroy()
     {

@@ -9,12 +9,13 @@ public class MoveFlag : MonoBehaviour
 
     private List<GameObject> activeFlags = new List<GameObject>();
     private GameObject rallyFlag;
-    [SerializeField] private float flagAutoDestroyTime = 12f;
+    [SerializeField] private float flagAutoDestroyTime = 2.0f;
 
     private void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
+        if (flagAutoDestroyTime > 3.0f) flagAutoDestroyTime = 2.0f;
     }
 
     /// <summary>Show a single flag (replaces all previous). Call when unit is selected and ordered.</summary>
@@ -34,7 +35,8 @@ public class MoveFlag : MonoBehaviour
             activeFlags.Clear();
         }
 
-        GameObject flag = Instantiate(flagPrefab, position + Vector3.up * 0.3f, Quaternion.identity);
+        // Place flag base cleanly on terrain/surface (slight 0.02f offset to prevent ground z-fighting)
+        GameObject flag = Instantiate(flagPrefab, position + Vector3.up * 0.02f, Quaternion.identity);
         if (flagAutoDestroyTime > 0f) Destroy(flag, flagAutoDestroyTime);
         activeFlags.Add(flag);
     }
@@ -44,7 +46,7 @@ public class MoveFlag : MonoBehaviour
     {
         ClearRallyFlag();
         if (flagPrefab == null) return;
-        rallyFlag = Instantiate(flagPrefab, position + Vector3.up * 0.3f, Quaternion.identity);
+        rallyFlag = Instantiate(flagPrefab, position + Vector3.up * 0.02f, Quaternion.identity);
     }
 
     public void ClearRallyFlag()
