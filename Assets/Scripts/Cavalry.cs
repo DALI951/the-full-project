@@ -115,8 +115,12 @@ public class Cavalry : Unit
         if (isDying || animator == null) return;
 
         Vector3 pos = transform.position;
-        bool moving = Vector3.SqrMagnitude(pos - _lastPosition) > 0.001f;
+        float dt = Mathf.Max(0.0001f, Time.deltaTime);
+        float currentSpeed = Vector3.Distance(pos, _lastPosition) / dt;
         _lastPosition = pos;
+
+        bool hasNavAgentMovement = (agent != null && agent.enabled && agent.hasPath && agent.velocity.sqrMagnitude > 0.04f);
+        bool moving = hasNavAgentMovement || (currentSpeed > 0.15f);
 
         if (moving)
         {

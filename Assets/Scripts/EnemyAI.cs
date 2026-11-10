@@ -377,7 +377,7 @@ public class EnemyAI : MonoBehaviour
             if (b == null || b.OwnerPlayerId != enemyPlayerId) continue;
             if (b.QueueBatchCount >= 3) continue;
 
-            if (b is HomeSite)
+            if (b is HomeSite || b.IsHomeSiteBuilding)
             {
                 if (villagerCount < 12 || (ecoPriority > 0 && currentPopulation < maxPopulation - 2))
                 {
@@ -388,7 +388,7 @@ public class EnemyAI : MonoBehaviour
                     }
                 }
             }
-            else if (b is Barracks)
+            else if (b is Barracks || b.IsBarracksBuilding)
             {
                 int idx = 0;
                 float cavRatio = militaryCount > 0 ? (float)CountEnemyCavalry() / militaryCount : 0f;
@@ -396,14 +396,10 @@ public class EnemyAI : MonoBehaviour
                 if (timePhase > 5f && cavRatio < 0.3f && Random.value < 0.4f && b.SpawnablePrefabs.Count > 1)
                     idx = 1;
 
-                Unit unitPrefab = b.SpawnablePrefabs[idx]?.GetComponent<Unit>();
-                if (unitPrefab != null)
-                {
-                    int costFood = unitPrefab is Cavalry ? 80 : 60;
-                    int costGold = unitPrefab is Cavalry ? 30 : 20;
-                    if (CanAfford(costFood, 0, costGold) && CanAddPopulation(1))
-                        b.SpawnUnit(idx);
-                }
+                int costFood = idx == 1 ? 100 : 60;
+                int costGold = idx == 1 ? 60 : 20;
+                if (CanAfford(costFood, 0, costGold) && CanAddPopulation(1))
+                    b.SpawnUnit(idx);
             }
         }
     }
@@ -421,35 +417,55 @@ public class EnemyAI : MonoBehaviour
         List<Unit> attackers = available.Take(attackForce).ToList();
 
         Building primaryTarget = FindBestTarget(AveragePos(attackers));
-        if (primaryTarget == null) return;
-
         waveCount++;
         StartCoroutine(ExecuteAttackWave(attackers, primaryTarget));
     }
 
     private IEnumerator ExecuteAttackWave(List<Unit> attackers, Building primaryTarget)
     {
-        List<Unit> infantry = attackers.Where(u => u is Infantry).ToList();
-        List<Unit> cavalry = attackers.Where(u => u is Cavalry).ToList();
-
-        if (cavalry.Count >= 2)
+        if (primaryTarget == null)
         {
-            Vector3 flankPos = primaryTarget.transform.position + (primaryTarget.transform.right * Random.Range(8f, 15f));
+            Unit nearestEnemy = FindNearestPlayerUnit(AveragePos(attackers));
+            if (nearestEnemy != null)
+            {
+                foreach (Unit u in attackers)
+                {
+                    if (u != null)
+                    {
+                        u.ClearWaypoints();
+                        u.SetCombatTarget(nearestEnemy);
+                    }
+                }
+            }
+            yield break;
+        }
+
+        Vector3 targetPos = primaryTarget.transform.position;
+        List<Unit> cavalry = attackers.Where(u => u is Cavalry).ToList();
+        List<Unit> infantry = attackers.Where(u => u != null && !(u is Cavalry)).ToList();
+
+        if (cavalry.Count >= 2 && primaryTarget != null)
+        {
+            Vector3 flankPos = targetPos + (primaryTarget.transform.right * Random.Range(8f, 15f));
             flankPos = ClampToMap(flankPos);
             foreach (Unit c in cavalry)
             {
+                if (c == null) continue;
                 c.ClearWaypoints();
                 c.MoveTo(flankPos);
-                c.SetBuildingTarget(primaryTarget);
+                if (primaryTarget != null) c.SetBuildingTarget(primaryTarget);
             }
             yield return new WaitForSeconds(Random.Range(1f, 3f));
         }
 
-        Vector3 approachPos = primaryTarget.transform.position;
         foreach (Unit u in infantry)
         {
+            if (u == null) continue;
             u.ClearWaypoints();
-            u.SetBuildingTarget(primaryTarget);
+            if (primaryTarget != null)
+                u.SetBuildingTarget(primaryTarget);
+            else
+                u.MoveTo(targetPos);
         }
 
         yield return new WaitForSeconds(2f);
@@ -457,8 +473,35 @@ public class EnemyAI : MonoBehaviour
         foreach (Unit u in attackers)
         {
             if (u != null && !u.HasActiveTarget)
-                u.SetBuildingTarget(primaryTarget);
+            {
+                if (primaryTarget != null)
+                    u.SetBuildingTarget(primaryTarget);
+                else
+                {
+                    Unit playerU = FindNearestPlayerUnit(u.transform.position);
+                    if (playerU != null) u.SetCombatTarget(playerU);
+                }
+            }
         }
+    }
+
+    private Unit FindNearestPlayerUnit(Vector3 from)
+    {
+        if (UnitSelectionManager.Instance == null) return null;
+        Unit nearest = null;
+        float bestDist = float.MaxValue;
+
+        foreach (Unit u in UnitSelectionManager.Instance.allUnitsList)
+        {
+            if (u == null || u.IsDead || u.OwnerPlayerId == enemyPlayerId) continue;
+            float d = Vector3.Distance(from, u.transform.position);
+            if (d < bestDist)
+            {
+                bestDist = d;
+                nearest = u;
+            }
+        }
+        return nearest;
     }
 
     private Building FindBestTarget(Vector3 from)
@@ -474,8 +517,8 @@ public class EnemyAI : MonoBehaviour
             float dist = Vector3.Distance(from, b.transform.position);
             float score = dist;
 
-            if (b is HomeSite) score *= 0.5f;
-            else if (b is Barracks) score *= 0.7f;
+            if (b is HomeSite || b.IsHomeSiteBuilding) score *= 0.5f;
+            else if (b is Barracks || b.IsBarracksBuilding) score *= 0.7f;
 
             if (b.CurrentBuildingHealth < b.MaxBuildingHealth * 0.3f)
                 score *= 0.4f;
@@ -635,6 +678,8 @@ public class EnemyAI : MonoBehaviour
 
     public void OnBuildingDestroyed(Building building)
     {
+        if (GameOverManager.Instance != null)
+            GameOverManager.Instance.CheckGameOver(building != null ? building.OwnerPlayerId : -1);
         StartCoroutine(CheckWinLose());
     }
 
@@ -740,7 +785,10 @@ public class EnemyAI : MonoBehaviour
         foreach (Building b in Building.AllBuildings)
         {
             if (b == null || b.OwnerPlayerId != enemyPlayerId) continue;
-            if (b is T && b.QueueBatchCount < 3)
+            bool match = b is T;
+            if (typeof(T) == typeof(HomeSite) && b.IsHomeSiteBuilding) match = true;
+            if (typeof(T) == typeof(Barracks) && b.IsBarracksBuilding) match = true;
+            if (match && b.QueueBatchCount < 3)
             {
                 b.SpawnUnit(unitIndex);
                 return;

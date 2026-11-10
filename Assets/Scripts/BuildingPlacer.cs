@@ -33,6 +33,9 @@ public class BuildingPlacer : MonoBehaviour
     private bool          isWallDragging   = false;
     private Vector3       wallDragStart;
     private List<GameObject> wallGhostSegments = new List<GameObject>();
+    private readonly List<Villager> cachedBuilders = new List<Villager>();
+
+    public static IReadOnlyList<Villager> LastPlacingVillagers => Instance != null ? Instance.cachedBuilders : null;
 
     private bool IsWallPlacement =>
         buildingPrefab != null && buildingPrefab.name.IndexOf("Wall", System.StringComparison.OrdinalIgnoreCase) >= 0;
@@ -115,6 +118,16 @@ public class BuildingPlacer : MonoBehaviour
         currentRotationY     = 0f;
         isWallDragging       = false;
         currentGhostMaterial = ghostMaterial;
+
+        cachedBuilders.Clear();
+        if (SelectionManager.Instance != null && SelectionManager.Instance.SelectedUnits != null)
+        {
+            foreach (Unit u in SelectionManager.Instance.SelectedUnits)
+            {
+                if (u is Villager v && !v.IsDead && v.OwnerPlayerId == PlayerColorManager.LocalPlayerIndex)
+                    cachedBuilders.Add(v);
+            }
+        }
 
         if (buildPrefab == null)
         {
@@ -344,14 +357,26 @@ public class BuildingPlacer : MonoBehaviour
             // In single player, command selected villagers to build starting at the first placed site
             if (firstPlacedSite != null)
             {
+                List<Villager> buildersToAssign = new List<Villager>();
                 var selected = SelectionManager.Instance?.SelectedUnits;
                 if (selected != null)
                 {
                     foreach (Unit u in selected)
                     {
-                        if (u is Villager v)
-                            v.BuildAt(firstPlacedSite);
+                        if (u is Villager v && !v.IsDead && v.OwnerPlayerId == PlayerColorManager.LocalPlayerIndex)
+                            buildersToAssign.Add(v);
                     }
+                }
+                if (buildersToAssign.Count == 0)
+                {
+                    foreach (Villager v in cachedBuilders)
+                        if (v != null && !v.IsDead && v.OwnerPlayerId == PlayerColorManager.LocalPlayerIndex)
+                            buildersToAssign.Add(v);
+                }
+
+                foreach (Villager v in buildersToAssign)
+                {
+                    v.BuildAt(firstPlacedSite);
                 }
             }
         }
@@ -413,11 +438,26 @@ public class BuildingPlacer : MonoBehaviour
 
         AudioManager.Instance?.PlayBuildPlace();
 
-        foreach (Unit u in SelectionManager.Instance?.SelectedUnits ?? 
-            new System.Collections.Generic.List<Unit>())
+        List<Villager> buildersToAssign = new List<Villager>();
+        var selectedUnits = SelectionManager.Instance?.SelectedUnits;
+        if (selectedUnits != null)
         {
-            if (u is Villager v)
-                v.BuildAt(site);
+            foreach (Unit u in selectedUnits)
+            {
+                if (u is Villager v && !v.IsDead && v.OwnerPlayerId == PlayerColorManager.LocalPlayerIndex)
+                    buildersToAssign.Add(v);
+            }
+        }
+        if (buildersToAssign.Count == 0)
+        {
+            foreach (Villager v in cachedBuilders)
+                if (v != null && !v.IsDead && v.OwnerPlayerId == PlayerColorManager.LocalPlayerIndex)
+                    buildersToAssign.Add(v);
+        }
+
+        foreach (Villager v in buildersToAssign)
+        {
+            v.BuildAt(site);
         }
 
         CancelPlacement();

@@ -13,9 +13,9 @@ public class ResourceManager : MonoBehaviour
 
     // ─── Inspector Fields ────────────────────────────────────────────────
     [Header("Starting Resources")]
-    [SerializeField] private int startingFood  = 200;
-    [SerializeField] private int startingWood  = 150;
-    [SerializeField] private int startingGold  = 100;
+    [SerializeField] private int startingFood  = 500;
+    [SerializeField] private int startingWood  = 500;
+    [SerializeField] private int startingGold  = 300;
     [Header("Population")]
     [SerializeField] private int maxPopulation = 20;
     private int currentPopulation = 0;
@@ -31,9 +31,29 @@ public class ResourceManager : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
 
+        // Reset debug 9999 starting resources to balanced RTS values
+        if (startingFood >= 2000 || startingWood >= 2000 || startingGold >= 2000)
+        {
+            startingFood = 300;
+            startingWood = 300;
+            startingGold = 200;
+        }
+
         food = startingFood;
         wood = startingWood;
         gold = startingGold;
+
+        if (food >= 2000 || wood >= 2000 || gold >= 2000)
+        {
+            food = 300;
+            wood = 300;
+            gold = 200;
+        }
+
+        if (maxPopulation > 50)
+        {
+            maxPopulation = 20;
+        }
     }
 
     private void Start()
@@ -47,8 +67,24 @@ public class ResourceManager : MonoBehaviour
             currentPopulation = np.CurrentPopulation;
             maxPopulation = np.MaxPopulation;
         }
-        ResourceUI.Instance?.Refresh(food, wood, gold);
-        ResourceUI.Instance?.RefreshPopulation(currentPopulation, maxPopulation);
+
+        // Guarantee balanced starting resources in case scene or network had debug 9999
+        if (food >= 2000 || wood >= 2000 || gold >= 2000)
+        {
+            food = 300;
+            wood = 300;
+            gold = 200;
+            if (np != null && NetworkServer.active)
+            {
+                int diffF = 300 - np.Food;
+                int diffW = 300 - np.Wood;
+                int diffG = 200 - np.Gold;
+                np.AddResources(diffF, diffW, diffG);
+            }
+        }
+
+        ResourceUI.Instance?.Refresh(Food, Wood, Gold);
+        ResourceUI.Instance?.RefreshPopulation(CurrentPopulation, MaxPopulation);
     }
 
     private void Update()

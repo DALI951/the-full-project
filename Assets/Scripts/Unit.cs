@@ -445,6 +445,7 @@ public class Unit : NetworkBehaviour
     }
 
     public void SetAttackTarget(Unit t) { _movementOverride = false; attackTarget = t; }
+    public void SetCombatTarget(Unit t) => SetAttackTarget(t);
     public void ClearAttackTarget()     { attackTarget = null; }
 
     // Select() rebuilt a Material[] on every single click. Cached once instead.
@@ -760,7 +761,7 @@ public class Unit : NetworkBehaviour
             while (true)
             {
                 if (agent == null || !agent.isOnNavMesh) break;
-                if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.5f)
+                if (!agent.pathPending && (!agent.hasPath || agent.remainingDistance <= agent.stoppingDistance + 0.5f))
                     break;
                 yield return null;
             }
@@ -772,7 +773,7 @@ public class Unit : NetworkBehaviour
         waypointCoroutine = null;
     }
 
-    public void AddWaypoint(Vector3 point)
+    public virtual void AddWaypoint(Vector3 point)
     {
         if (MapBoundary.Instance != null)
             point = MapBoundary.Instance.Clamp(point);
@@ -781,12 +782,12 @@ public class Unit : NetworkBehaviour
             waypointCoroutine = StartCoroutine(ProcessWaypoints());
     }
 
-    public void SetFirstWaypoint(Vector3 point)
+    public virtual void SetFirstWaypoint(Vector3 point)
     {
         if (MapBoundary.Instance != null)
             point = MapBoundary.Instance.Clamp(point);
 
-        waypoints.Clear();
+        ClearWaypoints();
         waypoints.Add(point);
 
         MoveTo(point);

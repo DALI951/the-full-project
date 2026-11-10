@@ -30,13 +30,21 @@ public static class AIBridgeServer
 
         _routes = new Dictionary<string, Func<HttpListenerRequest, string>>(StringComparer.OrdinalIgnoreCase)
         {
-            { "GET:/capture/game", req => RunOnMainThread(() => WrapCaptureFile(SceneCapture.CaptureGameView())) },
+            { "GET:/capture/game", req => RunOnMainThread(() => {
+                int w = int.TryParse(req.QueryString["width"], out int rw) ? rw : 1920;
+                int h = int.TryParse(req.QueryString["height"], out int rh) ? rh : 1080;
+                return WrapCaptureFile(SceneCapture.CaptureGameView(req.QueryString["dest"], w, h));
+            }) },
+            { "POST:/select", req => HandleSelect(req) },
+            { "GET:/select", req => HandleSelect(req) },
             { "GET:/capture/scene", req => RunOnMainThread(() => WrapCaptureFile(SceneCapture.CaptureSceneView())) },
             { "GET:/scene/hierarchy", req => RunOnMainThread(() => SceneDataExporter.GetHierarchy()) },
             { "GET:/scene/all", req => RunOnMainThread(() => SceneDataExporter.GetAllSceneObjects()) },
             { "GET:/scene/current", req => RunOnMainThread(() => JsonUtils.ToJson(new { scene = UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene().path })) },
             { "POST:/scene/open", req => HandleOpenScene(req) },
             { "GET:/scene/open", req => HandleOpenScene(req) },
+            { "POST:/scene/save", req => RunOnMainThread(() => { UnityEditor.SceneManagement.EditorSceneManager.SaveOpenScenes(); AssetDatabase.SaveAssets(); return JsonUtils.ToJson(new { status = "saved" }); }) },
+            { "GET:/scene/save", req => RunOnMainThread(() => { UnityEditor.SceneManagement.EditorSceneManager.SaveOpenScenes(); AssetDatabase.SaveAssets(); return JsonUtils.ToJson(new { status = "saved" }); }) },
             { "POST:/object/get", req => HandleObjectGet(req) },
             { "POST:/object/set", req => HandleObjectSet(req) },
             { "POST:/object/animator", req => HandleAnimator(req) },
@@ -233,6 +241,42 @@ public static class AIBridgeServer
         resp.ContentLength64 = buffer.Length;
         resp.OutputStream.Write(buffer, 0, buffer.Length);
         resp.OutputStream.Close();
+    }
+
+    private static string HandleSelect(HttpListenerRequest req)
+    {
+        string name = req.QueryString["name"];
+        if (string.IsNullOrEmpty(name))
+        {
+            var data = ReadBody(req);
+            name = ExtractString(data, "name");
+        }
+        return RunOnMainThread(() =>
+        {
+            GameObject go = GameObject.Find(name);
+            if (go == null)
+            {
+                foreach (var root in UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects())
+                {
+                    if (root.name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0) { go = root; break; }
+                    var child = root.transform.Find(name);
+                    if (child != null) { go = child.gameObject; break; }
+                }
+            }
+            if (go == null) return JsonUtils.ToJson(new { error = $"Object '{name}' not found" });
+
+            UnityEditor.Selection.activeGameObject = go;
+
+            var sm = SelectionManager.Instance;
+            if (sm != null)
+            {
+                var b = go.GetComponent<Building>();
+                if (b != null) sm.SelectBuilding(b);
+                var u = go.GetComponent<Unit>();
+                if (u != null) sm.SelectSingleUnit(u);
+            }
+            return JsonUtils.ToJson(new { success = true, selected = go.name });
+        });
     }
 
     private static string HandleObjectGet(HttpListenerRequest req)

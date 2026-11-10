@@ -55,7 +55,7 @@ public class ResourceInfoUI : MonoBehaviour
         {
             return (
                 "Wild Game (Deer Herd)",
-                "<color=#E5C158>Food Source</color> — Harvestable wildlife. Villagers hunt and field-dress for rich sustenance."
+                "<color=#E5C158>Food Source</color> - Harvestable wildlife. Villagers hunt and field-dress for rich sustenance."
             );
         }
 
@@ -64,22 +64,22 @@ public class ResourceInfoUI : MonoBehaviour
             case ResourceType.Wood:
                 return (
                     "Forest Timber",
-                    "<color=#E5C158>Wood Source</color> — Dense timber grove. Harvested for buildings, palisades, and military gear."
+                    "<color=#E5C158>Wood Source</color> - Dense timber grove. Harvested for buildings, palisades, and military gear."
                 );
             case ResourceType.Gold:
                 return (
                     "Deep Gold Vein",
-                    "<color=#E5C158>Gold Deposit</color> — Precious metal vein. Essential for military recruitment and Age advancement."
+                    "<color=#E5C158>Gold Deposit</color> - Precious metal vein. Essential for military recruitment and Age advancement."
                 );
             case ResourceType.Food:
                 return (
                     "Agricultural Farm",
-                    "<color=#E5C158>Renewable Food Plot</color> — Cultivated soil providing steady long-term nutrition."
+                    "<color=#E5C158>Renewable Food Plot</color> - Cultivated soil providing steady long-term nutrition."
                 );
             default:
                 return (
                     SanitizeName(node.gameObject.name),
-                    $"<color=#E5C158>Resource Deposit</color> — Gives {node.ResourceType}."
+                    $"<color=#E5C158>Resource Deposit</color> - Gives {node.ResourceType}."
                 );
         }
     }

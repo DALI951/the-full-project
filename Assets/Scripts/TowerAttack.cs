@@ -307,12 +307,3 @@ public class TowerArrow : MonoBehaviour
         Destroy(gameObject);
     }
 }
-
-public static class EffectManagerTowerAttackExtensions
-{
-    public static void PlayHitSpark(this EffectManager em, Vector3 position)
-    {
-        if (em == null) return;
-        em.PlayHitSpark(position);
-    }
-}

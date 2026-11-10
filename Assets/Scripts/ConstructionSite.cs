@@ -83,9 +83,10 @@ public class ConstructionSite : NetworkBehaviour
         isComplete = true;
         AudioManager.Instance?.PlayBuildingComplete();
         EffectManager.Instance?.PlayBuildCompleteEffect(transform.position);
+        GameObject built = null;
         if (completedPrefab != null)
         {
-            GameObject built = Instantiate(completedPrefab,
+            built = Instantiate(completedPrefab,
                 transform.position, transform.rotation);
             int layer = LayerMask.NameToLayer("Building");
             SetLayerRecursive(built, layer);
@@ -94,6 +95,12 @@ public class ConstructionSite : NetworkBehaviour
                 b.SetOwner(ownerId);
             if (NetworkServer.active)
                 NetworkServer.Spawn(built);
+        }
+
+        // Prevent builders or any units from getting trapped inside the new building's collider & NavMeshObstacle
+        if (built != null)
+        {
+            DisplaceTrappedUnits(built);
         }
 
         bool isWall = (completedPrefab != null && completedPrefab.name.IndexOf("Wall", System.StringComparison.OrdinalIgnoreCase) >= 0)
@@ -122,6 +129,77 @@ public class ConstructionSite : NetworkBehaviour
             NetworkServer.Destroy(gameObject);
         else
             Destroy(gameObject);
+    }
+
+    private void DisplaceTrappedUnits(GameObject built)
+    {
+        if (built == null) return;
+
+        Collider buildCol = built.GetComponent<Collider>() ?? built.GetComponentInChildren<Collider>();
+        Bounds bounds;
+        if (buildCol != null)
+        {
+            bounds = buildCol.bounds;
+        }
+        else
+        {
+            bounds = new Bounds(built.transform.position, new Vector3(4f, 3f, 4f));
+        }
+
+        Bounds expanded = new Bounds(bounds.center, new Vector3(bounds.size.x + 1.2f, bounds.size.y + 4f, bounds.size.z + 1.2f));
+
+        float checkRadius = Mathf.Max(bounds.extents.x, bounds.extents.z) + 3.5f;
+        Collider[] trappedCols = Physics.OverlapSphere(bounds.center, checkRadius);
+        HashSet<Unit> unitsToCheck = new HashSet<Unit>();
+
+        foreach (Collider c in trappedCols)
+        {
+            Unit u = c.GetComponentInParent<Unit>();
+            if (u != null && !u.IsDead)
+                unitsToCheck.Add(u);
+        }
+
+        foreach (Villager b in builders)
+        {
+            if (b != null && !b.IsDead)
+                unitsToCheck.Add(b);
+        }
+
+        foreach (Unit u in unitsToCheck)
+        {
+            if (u == null) continue;
+            Vector3 uPos = u.transform.position;
+
+            bool insideXZ = Mathf.Abs(uPos.x - bounds.center.x) <= (bounds.extents.x + 0.6f) &&
+                           Mathf.Abs(uPos.z - bounds.center.z) <= (bounds.extents.z + 0.6f);
+
+            if (insideXZ || expanded.Contains(uPos))
+            {
+                Vector3 outward = uPos - bounds.center;
+                outward.y = 0;
+                if (outward.sqrMagnitude < 0.01f)
+                    outward = built.transform.forward;
+                outward.Normalize();
+
+                float margin = Mathf.Max(bounds.extents.x, bounds.extents.z) + 1.2f;
+                Vector3 safePos = bounds.center + outward * margin;
+                safePos.y = built.transform.position.y;
+
+                if (NavMesh.SamplePosition(safePos, out NavMeshHit hit, 5f, NavMesh.AllAreas))
+                    safePos = hit.position;
+
+                NavMeshAgent ag = u.GetComponent<NavMeshAgent>();
+                if (ag != null && ag.isOnNavMesh)
+                {
+                    ag.Warp(safePos);
+                    ag.ResetPath();
+                }
+                else
+                {
+                    u.transform.position = safePos;
+                }
+            }
+        }
     }
 
     private ConstructionSite FindNearestUnfinishedWallSite(Vector3 center, float maxDist, int ownerId)

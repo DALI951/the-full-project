@@ -122,6 +122,11 @@ public class SelectionManager : MonoBehaviour
         foreach (Unit u in selectedUnits)
         {
             if (u == null || u.IsDead) continue;
+            if (u is Villager v)
+            {
+                v.CancelGatheringAndBuilding();
+                v.EnterIdle();
+            }
             u.ClearWaypoints();
             var ag = u.GetComponent<UnityEngine.AI.NavMeshAgent>();
             if (ag != null && ag.isOnNavMesh) ag.ResetPath();
@@ -490,11 +495,14 @@ public class SelectionManager : MonoBehaviour
         }
 
         // ── Resource node? → gather (Villagers) or move (military) ────
-        if (Physics.Raycast(ray, out RaycastHit resHit, Mathf.Infinity, resourceLayer))
+        ResourceNode node = null;
+        if (hit.collider != null)
+            node = hit.collider.GetComponentInParent<ResourceNode>();
+        if (node == null && Physics.Raycast(ray, out RaycastHit resHit, Mathf.Infinity, resourceLayer))
+            node = resHit.collider.GetComponentInParent<ResourceNode>();
+
+        if (node != null)
         {
-            ResourceNode node = resHit.collider.GetComponentInParent<ResourceNode>();
-            if (node != null)
-            {
                 MoveFlag.Instance?.ClearAllFlags();
                 foreach (Unit u in selectedUnits)
                     if (u != null) u.ClearWaypoints();
@@ -519,7 +527,6 @@ public class SelectionManager : MonoBehaviour
                     }
                 }
                 return;
-            }
         }
 
         // ── Ground → move in formation ────────────────────────────────

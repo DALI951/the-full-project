@@ -18,10 +18,10 @@ public class AgeManager : MonoBehaviour
 
     private static readonly string[] AgeNames = new string[]
     {
-        "AGE I — DARK AGE",
-        "AGE II — FEUDAL AGE",
-        "AGE III — CASTLE AGE",
-        "AGE IV — IMPERIAL AGE"
+        "AGE I - DARK AGE",
+        "AGE II - FEUDAL AGE",
+        "AGE III - CASTLE AGE",
+        "AGE IV - IMPERIAL AGE"
     };
 
     [Header("Current Progression")]
@@ -107,7 +107,7 @@ public class AgeManager : MonoBehaviour
     {
         if (currentAge >= AGE_IMPERIAL)
         {
-            Debug.Log("[AgeManager] Already at Maximum Age (Age IV — Imperial Age).");
+            Debug.Log("[AgeManager] Already at Maximum Age (Age IV - Imperial Age).");
             return false;
         }
         return SetAge(currentAge + 1);
@@ -237,10 +237,10 @@ public class AgeManager : MonoBehaviour
             };
         }
 
-        float bannerWidth = 460f;
+        float bannerWidth = 480f;
         float bannerHeight = 64f;
         float x = (Screen.width - bannerWidth) * 0.5f;
-        float y = 32f;
+        float y = 58f;
 
         // Dark medieval parchment backdrop
         Color prevColor = GUI.color;
@@ -259,7 +259,7 @@ public class AgeManager : MonoBehaviour
 
         // Subtitle (Civilization Tech Upgrades Applied)
         subBannerStyle.normal.textColor = new Color(0.85f, 0.88f, 0.92f, alpha * 0.9f);
-        string subText = $"+{MilitaryDamageBonus} Military DMG  •  +{MilitaryHpBonus} HP  •  +{GatherBonus} Harvest Bonus";
+        string subText = $"+{MilitaryDamageBonus} Military DMG  *  +{MilitaryHpBonus} HP  *  +{GatherBonus} Harvest Bonus";
         GUI.Label(new Rect(x, y + 36, bannerWidth, 22), subText, subBannerStyle);
 
         GUI.color = prevColor;

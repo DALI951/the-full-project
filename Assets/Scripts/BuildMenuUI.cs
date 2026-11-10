@@ -205,7 +205,7 @@ public class BuildMenuUI : MonoBehaviour
         if (index < 0 || index >= buildings.Length) return;
         BuildEntry entry = buildings[index];
 
-        // Only check affordability — DO NOT spend resources here!
+        // Only check affordability - DO NOT spend resources here!
         if (!CanAfford(entry))
         {
             Debug.Log($"[BuildMenu] Not enough resources for {entry.buildingName}.");

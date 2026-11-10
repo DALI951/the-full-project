@@ -38,10 +38,23 @@ public class ResourceBuildingUI : MonoBehaviour
     private Coroutine        notifCoroutine;
 
     // ── Dynamic AoE4 Actions Area ──────────────────────────────────────────
+    private GameObject actionsPanel;
     private Transform  actionsContainer;
     private TMP_Text   actionsHeader;
     private readonly List<GameObject> activeActionButtons = new List<GameObject>();
     private readonly List<Building.BuildingAction> currentActions = new List<Building.BuildingAction>();
+
+    public static string SanitizeTmpText(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "";
+        return raw.Replace("→", "->")
+                  .Replace("←", "<-")
+                  .Replace("—", "-")
+                  .Replace("–", "-")
+                  .Replace("✓", "[Done]")
+                  .Replace("★", "*")
+                  .Replace("•", "*");
+    }
 
     // ── Lifecycle ────────────────────────────────────────────────────────
 
@@ -66,40 +79,78 @@ public class ResourceBuildingUI : MonoBehaviour
 
     private void EnsureActionsContainer()
     {
-        if (actionsContainer != null) return;
-        if (buttonsPanel == null) return;
+        if (actionsPanel != null) return;
+        if (infoPanel == null && buttonsPanel == null) return;
 
-        // Expand height slightly if needed for rich button sets
-        RectTransform bpRt = buttonsPanel.GetComponent<RectTransform>();
-        if (bpRt != null && bpRt.sizeDelta.y < 250f)
+        // Position the upgrade/actions panel cleanly beside infoPanel in CenterZone
+        Transform parentCanvas = null;
+        if (infoPanel != null)
         {
-            bpRt.sizeDelta = new Vector2(bpRt.sizeDelta.x, 260f);
+            parentCanvas = infoPanel.transform.parent != null && infoPanel.transform.parent.parent != null
+                ? infoPanel.transform.parent.parent
+                : (infoPanel.transform.parent ?? infoPanel.transform);
         }
+        else if (buttonsPanel != null)
+        {
+            parentCanvas = buttonsPanel.transform.parent;
+        }
+        else
+        {
+            parentCanvas = transform;
+        }
+
+        actionsPanel = new GameObject("ResourceBuildingActionsPanel", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        actionsPanel.transform.SetParent(parentCanvas, false);
+
+        RectTransform rt = actionsPanel.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+
+        RectTransform infoRt = infoPanel != null ? infoPanel.GetComponent<RectTransform>() : null;
+        if (infoPanel != null && infoPanel.transform.parent != null && infoPanel.transform.parent is RectTransform parentRt && parentRt.gameObject.name != "CenterZone")
+        {
+            infoRt = parentRt;
+        }
+
+        float infoRight = infoRt != null ? (infoRt.anchoredPosition.x + (infoRt.sizeDelta.x * 0.5f)) : (-193.6f + 111f);
+        float actionWidth = 230f;
+        float panelY = infoRt != null ? infoRt.anchoredPosition.y : 0f;
+        float panelH = infoRt != null && infoRt.sizeDelta.y > 0 ? infoRt.sizeDelta.y : 180f;
+
+        rt.anchoredPosition = new Vector2(infoRight + (actionWidth * 0.5f) + 6f, panelY);
+        rt.sizeDelta = new Vector2(actionWidth, panelH);
+
+        Image bg = actionsPanel.GetComponent<Image>();
+        bg.color = new Color(0.18f, 0.12f, 0.08f, 0.95f);
 
         // Action Header
         GameObject hdrObj = new GameObject("ResourceActionHeader", typeof(RectTransform), typeof(TextMeshProUGUI));
-        hdrObj.transform.SetParent(buttonsPanel.transform, false);
+        hdrObj.transform.SetParent(actionsPanel.transform, false);
         RectTransform hdrRt = hdrObj.GetComponent<RectTransform>();
-        hdrRt.sizeDelta = new Vector2(210f, 20f);
+        hdrRt.anchorMin = new Vector2(0f, 1f);
+        hdrRt.anchorMax = new Vector2(1f, 1f);
+        hdrRt.pivot = new Vector2(0.5f, 1f);
+        hdrRt.anchoredPosition = new Vector2(0f, -4f);
+        hdrRt.sizeDelta = new Vector2(210f, 22f);
 
         actionsHeader = hdrObj.GetComponent<TextMeshProUGUI>();
         actionsHeader.text = "TECH & TRADING";
-        actionsHeader.fontSize = 11f;
+        actionsHeader.fontSize = 11.5f;
         actionsHeader.fontStyle = FontStyles.Bold;
         actionsHeader.alignment = TextAlignmentOptions.Center;
         actionsHeader.color = new Color(1f, 0.85f, 0.4f, 1f);
-        if (nameText != null) actionsHeader.font = nameText.font;
+        if (nameText != null && nameText.font != null) actionsHeader.font = nameText.font;
 
         // Scroll Area for Action Buttons
         GameObject scrollObj = new GameObject("ActionScrollArea", typeof(RectTransform), typeof(ScrollRect), typeof(Image), typeof(Mask));
-        scrollObj.transform.SetParent(buttonsPanel.transform, false);
+        scrollObj.transform.SetParent(actionsPanel.transform, false);
         RectTransform scrollRt = scrollObj.GetComponent<RectTransform>();
-        scrollRt.sizeDelta = new Vector2(210f, 130f);
-
-        var le = scrollObj.AddComponent<LayoutElement>();
-        le.minHeight = 120f;
-        le.preferredHeight = 135f;
-        le.flexibleWidth = 1f;
+        scrollRt.anchorMin = new Vector2(0f, 0f);
+        scrollRt.anchorMax = new Vector2(1f, 1f);
+        scrollRt.pivot = new Vector2(0.5f, 0.5f);
+        scrollRt.offsetMin = new Vector2(6f, 6f);
+        scrollRt.offsetMax = new Vector2(-6f, -28f);
 
         Image maskImg = scrollObj.GetComponent<Image>();
         maskImg.color = new Color(0f, 0f, 0f, 0.01f);
@@ -123,8 +174,8 @@ public class ResourceBuildingUI : MonoBehaviour
         contentRt.sizeDelta = new Vector2(0f, 0f);
 
         VerticalLayoutGroup vlg = contentObj.GetComponent<VerticalLayoutGroup>();
-        vlg.padding = new RectOffset(1, 1, 1, 1);
-        vlg.spacing = 3f;
+        vlg.padding = new RectOffset(4, 4, 4, 4);
+        vlg.spacing = 5f;
         vlg.childControlWidth = true;
         vlg.childControlHeight = false;
         vlg.childForceExpandWidth = true;
@@ -135,6 +186,9 @@ public class ResourceBuildingUI : MonoBehaviour
 
         sr.content = contentRt;
         actionsContainer = contentObj.transform;
+
+        actionsPanel.SetActive(false);
+        SelectionManager.RegisterBlockingPanel(rt);
     }
 
     private void Update()
@@ -176,6 +230,7 @@ public class ResourceBuildingUI : MonoBehaviour
         Refresh();
         infoPanel?.SetActive(true);
         buttonsPanel?.SetActive(true);
+        actionsPanel?.SetActive(true);
     }
 
     public void RefreshIfShowing(ResourceBuilding building)
@@ -188,6 +243,7 @@ public class ResourceBuildingUI : MonoBehaviour
     {
         trackedBuilding = null;
         ClearActionButtons();
+        actionsPanel?.SetActive(false);
         infoPanel?.SetActive(false);
         buttonsPanel?.SetActive(false);
     }
@@ -196,7 +252,7 @@ public class ResourceBuildingUI : MonoBehaviour
     public void ShowNotification(string message)
     {
         if (notificationPanel == null || notificationText == null) return;
-        notificationText.text = message;
+        notificationText.text = SanitizeTmpText(message);
         notificationPanel.SetActive(true);
         if (notifCoroutine != null) StopCoroutine(notifCoroutine);
         notifCoroutine = StartCoroutine(HideNotifAfter(3f));
@@ -220,14 +276,14 @@ public class ResourceBuildingUI : MonoBehaviour
 
         Building bld = trackedBuilding.GetComponent<Building>();
         string rawName = (bld != null && !string.IsNullOrEmpty(bld.BuildingName)) ? bld.BuildingName : trackedBuilding.gameObject.name;
-        if (nameText)         nameText.text         = SanitizeName(rawName);
+        if (nameText)         nameText.text         = SanitizeTmpText(SanitizeName(rawName));
         if (resourceTypeText) resourceTypeText.text  = $"Generates: {trackedBuilding.GetResourceType}";
         if (workerCountText)  workerCountText.text   = $"Workers: {count} / {max}";
 
         if (statusText)
         {
-            if (count == 0)   statusText.text = "Idle — assign villagers to start production";
-            else if (count == max) statusText.text = $"Full — producing at max speed";
+            if (count == 0)   statusText.text = "Idle - assign villagers to start production";
+            else if (count == max) statusText.text = "Full - producing at max speed";
             else              statusText.text = $"Producing ({count} villager{(count > 1 ? "s" : "")})";
         }
 
@@ -251,14 +307,18 @@ public class ResourceBuildingUI : MonoBehaviour
         if (building == null || actionsContainer == null) return;
 
         List<Building.BuildingAction> actions = building.GetAvailableActions();
-        if (actions == null || actions.Count == 0) return;
+        if (actions == null || actions.Count == 0)
+        {
+            actionsPanel?.SetActive(false);
+            return;
+        }
 
         if (actionsHeader != null)
         {
             if (building.IsMarketBuilding) actionsHeader.text = "MARKET TRADING & GUILDS";
             else if (building.IsLumberMillBuilding) actionsHeader.text = "LUMBER MILL UPGRADES";
             else if (building.IsFarmBuilding) actionsHeader.text = "FARM TECH & HARVEST";
-            else actionsHeader.text = $"{SanitizeName(building.BuildingName).ToUpper()} ACTIONS";
+            else actionsHeader.text = SanitizeTmpText($"{SanitizeName(building.BuildingName).ToUpper()} ACTIONS");
         }
 
         foreach (var act in actions)
@@ -266,6 +326,8 @@ public class ResourceBuildingUI : MonoBehaviour
             currentActions.Add(act);
             CreateActionButton(actionsContainer, act);
         }
+
+        actionsPanel?.SetActive(true);
     }
 
     private void CreateActionButton(Transform parent, Building.BuildingAction act)
@@ -278,8 +340,8 @@ public class ResourceBuildingUI : MonoBehaviour
             btnObj.SetActive(true);
             var le = btnObj.GetComponent<LayoutElement>();
             if (le == null) le = btnObj.AddComponent<LayoutElement>();
-            le.minHeight = 28f;
-            le.preferredHeight = 30f;
+            le.minHeight = 44f;
+            le.preferredHeight = 48f;
             le.flexibleWidth = 1f;
         }
         else
@@ -299,8 +361,8 @@ public class ResourceBuildingUI : MonoBehaviour
             b.colors = cb;
 
             LayoutElement le = btnObj.GetComponent<LayoutElement>();
-            le.minHeight = 28f;
-            le.preferredHeight = 30f;
+            le.minHeight = 44f;
+            le.preferredHeight = 48f;
             le.flexibleWidth = 1f;
 
             GameObject txtObj = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
@@ -311,10 +373,10 @@ public class ResourceBuildingUI : MonoBehaviour
             txtRt.sizeDelta = Vector2.zero;
 
             TextMeshProUGUI tmp = txtObj.GetComponent<TextMeshProUGUI>();
-            tmp.fontSize = 10f;
+            tmp.fontSize = 11f;
             tmp.alignment = TextAlignmentOptions.Center;
             tmp.color = Color.white;
-            if (nameText != null) tmp.font = nameText.font;
+            if (nameText != null && nameText.font != null) tmp.font = nameText.font;
         }
 
         activeActionButtons.Add(btnObj);
@@ -323,8 +385,19 @@ public class ResourceBuildingUI : MonoBehaviour
         TMP_Text txt = btnObj.GetComponentInChildren<TMP_Text>();
         if (txt != null)
         {
-            txt.fontSize = 10f;
-            txt.text = act.getDynamicLabel != null ? act.getDynamicLabel() : act.title;
+            if (nameText != null && nameText.font != null && txt.font == null)
+                txt.font = nameText.font;
+
+            txt.enableAutoSizing = true;
+            txt.fontSizeMin = 9f;
+            txt.fontSizeMax = 12f;
+            txt.alignment = TextAlignmentOptions.Center;
+            txt.enableWordWrapping = true;
+            txt.overflowMode = TextOverflowModes.Ellipsis;
+            txt.margin = new Vector4(4f, 2f, 4f, 2f);
+
+            string rawText = act.getDynamicLabel != null ? act.getDynamicLabel() : act.title;
+            txt.text = SanitizeTmpText(rawText);
         }
 
         btn.onClick.RemoveAllListeners();
@@ -347,7 +420,7 @@ public class ResourceBuildingUI : MonoBehaviour
             TMP_Text txt = btnObj.GetComponentInChildren<TMP_Text>();
 
             if (txt != null && act.getDynamicLabel != null)
-                txt.text = act.getDynamicLabel();
+                txt.text = SanitizeTmpText(act.getDynamicLabel());
 
             bool canAfford = Building.CanAfford(act.costFood, act.costWood, act.costGold);
             bool available = act.isAvailable == null || act.isAvailable();
@@ -402,5 +475,6 @@ public class ResourceBuildingUI : MonoBehaviour
     {
         if (Instance == this) Instance = null;
         ClearActionButtons();
+        if (actionsPanel != null) Destroy(actionsPanel);
     }
 }

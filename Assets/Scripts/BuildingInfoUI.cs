@@ -58,6 +58,18 @@ public class BuildingInfoUI : MonoBehaviour
         EnsureActionsPanel();
     }
 
+    public static string SanitizeTmpText(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "";
+        return raw.Replace("→", "->")
+                  .Replace("←", "<-")
+                  .Replace("—", "-")
+                  .Replace("–", "-")
+                  .Replace("✓", "[Done]")
+                  .Replace("★", "*")
+                  .Replace("•", "*");
+    }
+
     private void EnsureActionsPanel()
     {
         if (actionsPanel != null) return;
@@ -71,8 +83,15 @@ public class BuildingInfoUI : MonoBehaviour
         rt.anchorMin = new Vector2(0.5f, 0.5f);
         rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = new Vector2(-193.6f, 0f);
-        rt.sizeDelta = new Vector2(222f, 180f);
+        
+        RectTransform panelRt = panel.GetComponent<RectTransform>();
+        float panelLeft = panelRt != null ? panelRt.anchoredPosition.x - (panelRt.sizeDelta.x * 0.5f) : (34.8f - 117.5f);
+        float actionWidth = 230f;
+        float panelY = panelRt != null ? panelRt.anchoredPosition.y : 0f;
+        float panelH = panelRt != null && panelRt.sizeDelta.y > 0 ? panelRt.sizeDelta.y : 180f;
+
+        rt.anchoredPosition = new Vector2(panelLeft - (actionWidth * 0.5f) - 6f, panelY);
+        rt.sizeDelta = new Vector2(actionWidth, panelH);
 
         Image bg = actionsPanel.GetComponent<Image>();
         bg.color = new Color(0.18f, 0.12f, 0.08f, 0.95f);
@@ -89,11 +108,11 @@ public class BuildingInfoUI : MonoBehaviour
 
         actionsHeader = hdrObj.GetComponent<TextMeshProUGUI>();
         actionsHeader.text = "BUILDING ACTIONS";
-        actionsHeader.fontSize = 12f;
+        actionsHeader.fontSize = 11.5f;
         actionsHeader.fontStyle = FontStyles.Bold;
         actionsHeader.alignment = TextAlignmentOptions.Center;
         actionsHeader.color = new Color(1f, 0.85f, 0.4f, 1f);
-        if (nameText != null) actionsHeader.font = nameText.font;
+        if (nameText != null && nameText.font != null) actionsHeader.font = nameText.font;
 
         // Scroll Area
         GameObject scrollObj = new GameObject("ScrollArea", typeof(RectTransform), typeof(ScrollRect), typeof(Image), typeof(Mask));
@@ -127,8 +146,8 @@ public class BuildingInfoUI : MonoBehaviour
         contentRt.sizeDelta = new Vector2(0f, 0f);
 
         VerticalLayoutGroup vlg = contentObj.GetComponent<VerticalLayoutGroup>();
-        vlg.padding = new RectOffset(2, 2, 2, 2);
-        vlg.spacing = 4f;
+        vlg.padding = new RectOffset(4, 4, 4, 4);
+        vlg.spacing = 5f;
         vlg.childControlWidth = true;
         vlg.childControlHeight = false;
         vlg.childForceExpandWidth = true;
@@ -290,6 +309,19 @@ public class BuildingInfoUI : MonoBehaviour
         if (deleteConstructionButton) deleteConstructionButton.gameObject.SetActive(false);
 
         EnsureActionsPanel();
+        if (actionsPanel != null && panel != null)
+        {
+            RectTransform panelRt = panel.GetComponent<RectTransform>();
+            RectTransform actRt = actionsPanel.GetComponent<RectTransform>();
+            if (panelRt != null && actRt != null)
+            {
+                float panelLeft = panelRt.anchoredPosition.x - (panelRt.sizeDelta.x * 0.5f);
+                float actionWidth = 230f;
+                actRt.anchoredPosition = new Vector2(panelLeft - (actionWidth * 0.5f) - 6f, panelRt.anchoredPosition.y);
+                actRt.sizeDelta = new Vector2(actionWidth, panelRt.sizeDelta.y > 0 ? panelRt.sizeDelta.y : 180f);
+            }
+        }
+
         if (isEnemy)
         {
             actionsPanel?.SetActive(false);
@@ -310,11 +342,11 @@ public class BuildingInfoUI : MonoBehaviour
         TowerAttack ta = trackedBuilding.GetComponent<TowerAttack>();
         if (ta != null && functionText != null)
         {
-            functionText.text = $"Watchtower Defense\nDamage: {ta.attackDamage}  |  Range: {ta.attackRange:F1}m  |  Rate: {(1f / Mathf.Max(0.1f, ta.attackCooldown)):F1}/s";
+            functionText.text = SanitizeTmpText($"Watchtower Defense\nDamage: {ta.attackDamage}  |  Range: {ta.attackRange:F1}m  |  Rate: {(1f / Mathf.Max(0.1f, ta.attackCooldown)):F1}/s");
         }
         else if (functionText != null)
         {
-            functionText.text = trackedBuilding.BuildingDescription;
+            functionText.text = SanitizeTmpText(trackedBuilding.BuildingDescription);
         }
     }
 
@@ -332,7 +364,7 @@ public class BuildingInfoUI : MonoBehaviour
 
         if (actionsHeader != null)
         {
-            actionsHeader.text = $"{SanitizeName(building.BuildingName).ToUpper()} ACTIONS";
+            actionsHeader.text = SanitizeTmpText($"{SanitizeName(building.BuildingName).ToUpper()} ACTIONS");
         }
 
         foreach (var act in actions)
@@ -355,8 +387,8 @@ public class BuildingInfoUI : MonoBehaviour
             btnObj.SetActive(true);
             var le = btnObj.GetComponent<LayoutElement>();
             if (le == null) le = btnObj.AddComponent<LayoutElement>();
-            le.minHeight = 32f;
-            le.preferredHeight = 34f;
+            le.minHeight = 44f;
+            le.preferredHeight = 48f;
             le.flexibleWidth = 1f;
         }
         else
@@ -376,8 +408,8 @@ public class BuildingInfoUI : MonoBehaviour
             b.colors = cb;
 
             LayoutElement le = btnObj.GetComponent<LayoutElement>();
-            le.minHeight = 32f;
-            le.preferredHeight = 34f;
+            le.minHeight = 44f;
+            le.preferredHeight = 48f;
             le.flexibleWidth = 1f;
 
             GameObject txtObj = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
@@ -391,7 +423,7 @@ public class BuildingInfoUI : MonoBehaviour
             tmp.fontSize = 11f;
             tmp.alignment = TextAlignmentOptions.Center;
             tmp.color = Color.white;
-            if (nameText != null) tmp.font = nameText.font;
+            if (nameText != null && nameText.font != null) tmp.font = nameText.font;
         }
 
         activeActionButtons.Add(btnObj);
@@ -400,8 +432,19 @@ public class BuildingInfoUI : MonoBehaviour
         TMP_Text txt = btnObj.GetComponentInChildren<TMP_Text>();
         if (txt != null)
         {
-            txt.fontSize = 10.5f;
-            txt.text = act.getDynamicLabel != null ? act.getDynamicLabel() : act.title;
+            if (nameText != null && nameText.font != null && txt.font == null)
+                txt.font = nameText.font;
+
+            txt.enableAutoSizing = true;
+            txt.fontSizeMin = 9f;
+            txt.fontSizeMax = 12f;
+            txt.alignment = TextAlignmentOptions.Center;
+            txt.enableWordWrapping = true;
+            txt.overflowMode = TextOverflowModes.Ellipsis;
+            txt.margin = new Vector4(4f, 2f, 4f, 2f);
+
+            string rawText = act.getDynamicLabel != null ? act.getDynamicLabel() : act.title;
+            txt.text = SanitizeTmpText(rawText);
         }
 
         btn.onClick.RemoveAllListeners();
@@ -425,7 +468,7 @@ public class BuildingInfoUI : MonoBehaviour
             TMP_Text txt = btnObj.GetComponentInChildren<TMP_Text>();
 
             if (txt != null && act.getDynamicLabel != null)
-                txt.text = act.getDynamicLabel();
+                txt.text = SanitizeTmpText(act.getDynamicLabel());
 
             bool canAfford = Building.CanAfford(act.costFood, act.costWood, act.costGold);
             bool available = act.isAvailable == null || act.isAvailable();

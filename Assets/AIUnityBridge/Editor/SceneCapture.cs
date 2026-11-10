@@ -15,12 +15,15 @@ public static class SceneCapture
         }
     }
 
-    public static string CaptureGameView()
+    public static string CaptureGameView(string customPath = null, int width = 1920, int height = 1080)
     {
-        string path = Path.Combine(ScreenshotDir, "game_view.png");
+        string path = !string.IsNullOrEmpty(customPath) ? customPath : Path.Combine(ScreenshotDir, "game_view.png");
+        string parentDir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(parentDir) && !Directory.Exists(parentDir))
+            Directory.CreateDirectory(parentDir);
 
-        int w = 1280;
-        int h = 720;
+        int w = width > 0 ? width : 1920;
+        int h = height > 0 ? height : 1080;
         var rt = RenderTexture.GetTemporary(w, h, 24);
         Camera cam = null;
         foreach (var c in Camera.allCameras)
@@ -34,6 +37,31 @@ public static class SceneCapture
         if (cam == null) cam = Camera.main;
         if (cam == null) return null;
 
+        // Temporarily convert ScreenSpaceOverlay Canvases to ScreenSpaceCamera
+        // so that cam.Render() captures the active HUD / in-game UI!
+        var overlayCanvases = new System.Collections.Generic.List<Canvas>();
+        var origModes = new System.Collections.Generic.List<RenderMode>();
+        var origCams = new System.Collections.Generic.List<Camera>();
+        var origDistances = new System.Collections.Generic.List<float>();
+
+        var allCanvases = Object.FindObjectsOfType<Canvas>();
+        foreach (var canvas in allCanvases)
+        {
+            if (canvas != null && canvas.isActiveAndEnabled && canvas.renderMode == RenderMode.ScreenSpaceOverlay)
+            {
+                overlayCanvases.Add(canvas);
+                origModes.Add(canvas.renderMode);
+                origCams.Add(canvas.worldCamera);
+                origDistances.Add(canvas.planeDistance);
+
+                canvas.renderMode = RenderMode.ScreenSpaceCamera;
+                canvas.worldCamera = cam;
+                canvas.planeDistance = Mathf.Clamp(cam.nearClipPlane + 0.5f, 0.5f, 2.0f);
+            }
+        }
+
+        Canvas.ForceUpdateCanvases();
+
         var prevRT = cam.targetTexture;
         cam.targetTexture = rt;
         cam.Render();
@@ -46,6 +74,18 @@ public static class SceneCapture
         cam.targetTexture = prevRT;
         RenderTexture.active = null;
         RenderTexture.ReleaseTemporary(rt);
+
+        // Restore canvases back to original settings immediately
+        for (int i = 0; i < overlayCanvases.Count; i++)
+        {
+            if (overlayCanvases[i] != null)
+            {
+                overlayCanvases[i].renderMode = origModes[i];
+                overlayCanvases[i].worldCamera = origCams[i];
+                overlayCanvases[i].planeDistance = origDistances[i];
+            }
+        }
+        Canvas.ForceUpdateCanvases();
 
         File.WriteAllBytes(path, tex.EncodeToPNG());
         Object.DestroyImmediate(tex);

@@ -123,14 +123,14 @@ public class AoE4HUDThemer : MonoBehaviour
             int age = AgeManager.Instance.CurrentAge;
             return age switch
             {
-                1 => "I — DARK AGE",
-                2 => "II — FEUDAL AGE",
-                3 => "III — CASTLE AGE",
-                4 => "IV — IMPERIAL AGE",
+                1 => "I - DARK AGE",
+                2 => "II - FEUDAL AGE",
+                3 => "III - CASTLE AGE",
+                4 => "IV - IMPERIAL AGE",
                 _ => AgeManager.Instance.GetAgeName().Replace("AGE ", "")
             };
         }
-        return "I — DARK AGE";
+        return "I - DARK AGE";
     }
 
     public static string GetNextAgeShortName()
@@ -381,7 +381,7 @@ public class AoE4HUDThemer : MonoBehaviour
         bannerRT.anchorMin = new Vector2(0.5f, 1f);
         bannerRT.anchorMax = new Vector2(0.5f, 1f);
         bannerRT.pivot     = new Vector2(0.5f, 1f);
-        bannerRT.sizeDelta = new Vector2(650f, 46f);
+        bannerRT.sizeDelta = new Vector2(760f, 48f);
         bannerRT.anchoredPosition = new Vector2(0f, -4f);
 
         Image bannerImg = topBannerObj.GetComponent<Image>();
@@ -401,7 +401,7 @@ public class AoE4HUDThemer : MonoBehaviour
         idleRT.anchorMin = new Vector2(0f, 0.5f);
         idleRT.anchorMax = new Vector2(0f, 0.5f);
         idleRT.pivot     = new Vector2(0f, 0.5f);
-        idleRT.sizeDelta = new Vector2(195f, 36f);
+        idleRT.sizeDelta = new Vector2(200f, 38f);
         idleRT.anchoredPosition = new Vector2(8f, 0f);
 
         idleVillagerImage = idleBtnObj.GetComponent<Image>();
@@ -423,7 +423,9 @@ public class AoE4HUDThemer : MonoBehaviour
 
         idleVillagerText = idleTxtObj.GetComponent<TextMeshProUGUI>();
         if (sharedFontAsset != null) idleVillagerText.font = sharedFontAsset;
-        idleVillagerText.fontSize = 13.5f;
+        idleVillagerText.enableAutoSizing = true;
+        idleVillagerText.fontSizeMin = 10f;
+        idleVillagerText.fontSizeMax = 13.5f;
         idleVillagerText.alignment = TextAlignmentOptions.Center;
         idleVillagerText.fontStyle = FontStyles.Bold;
         idleVillagerText.text = "IDLE VILLAGER [.] (0)";
@@ -436,15 +438,17 @@ public class AoE4HUDThemer : MonoBehaviour
         ageRT.anchorMin = new Vector2(0.5f, 0.5f);
         ageRT.anchorMax = new Vector2(0.5f, 0.5f);
         ageRT.pivot     = new Vector2(0.5f, 0.5f);
-        ageRT.sizeDelta = new Vector2(230f, 38f);
+        ageRT.sizeDelta = new Vector2(250f, 38f);
         ageRT.anchoredPosition = Vector2.zero;
 
         ageDisplayText = ageDisplayObj.GetComponent<TextMeshProUGUI>();
         if (sharedFontAsset != null) ageDisplayText.font = sharedFontAsset;
-        ageDisplayText.fontSize = 15.5f;
+        ageDisplayText.enableAutoSizing = true;
+        ageDisplayText.fontSizeMin = 11f;
+        ageDisplayText.fontSizeMax = 15f;
         ageDisplayText.alignment = TextAlignmentOptions.Center;
         ageDisplayText.fontStyle = FontStyles.Bold;
-        ageDisplayText.text = "<color=#E5C158><b>I — DARK AGE</b></color>";
+        ageDisplayText.text = "<color=#E5C158><b>I - DARK AGE</b></color>";
 
         // 4. Advance Age Button (Right)
         GameObject advBtnObj = new GameObject("Btn_AdvanceAge", typeof(RectTransform), typeof(Image), typeof(Outline), typeof(Button));
@@ -454,7 +458,7 @@ public class AoE4HUDThemer : MonoBehaviour
         advRT.anchorMin = new Vector2(1f, 0.5f);
         advRT.anchorMax = new Vector2(1f, 0.5f);
         advRT.pivot     = new Vector2(1f, 0.5f);
-        advRT.sizeDelta = new Vector2(195f, 36f);
+        advRT.sizeDelta = new Vector2(260f, 38f);
         advRT.anchoredPosition = new Vector2(-8f, 0f);
 
         advanceAgeImage = advBtnObj.GetComponent<Image>();
@@ -490,7 +494,11 @@ public class AoE4HUDThemer : MonoBehaviour
 
         advanceAgeText = advTxtObj.GetComponent<TextMeshProUGUI>();
         if (sharedFontAsset != null) advanceAgeText.font = sharedFontAsset;
-        advanceAgeText.fontSize = 13.5f;
+        advanceAgeText.enableAutoSizing = true;
+        advanceAgeText.fontSizeMin = 9.5f;
+        advanceAgeText.fontSizeMax = 13f;
+        advanceAgeText.enableWordWrapping = false;
+        advanceAgeText.margin = new Vector4(6f, 2f, 6f, 2f);
         advanceAgeText.alignment = TextAlignmentOptions.Center;
         advanceAgeText.fontStyle = FontStyles.Bold;
         advanceAgeText.text = "<color=#E5C158><b>ADVANCE AGE</b></color>";

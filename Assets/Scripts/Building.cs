@@ -285,24 +285,14 @@ public class Building : NetworkBehaviour
         return null;
     }
 
+    private float passiveEcoTimer = 0f;
+
     protected virtual void Update()
     {
         if (townBellCooldownTimer > 0f)
             townBellCooldownTimer -= Time.deltaTime;
 
-        if (hasMerchantGuilds && ownerPlayerId == PlayerColorManager.LocalPlayerIndex)
-        {
-            merchantGuildTimer += Time.deltaTime;
-            if (merchantGuildTimer >= 5f)
-            {
-                merchantGuildTimer = 0f;
-                if (ResourceManager.Instance != null)
-                {
-                    ResourceManager.Instance.AddResources(0, 0, 12);
-                    EffectManager.Instance?.PlayFloatingText(transform.position + Vector3.up * 2.2f, "+12 Gold", Color.yellow);
-                }
-            }
-        }
+        UpdatePassiveResourceGeneration();
 
         if (isClient && ownerPlayerId != PlayerColorManager.LocalPlayerIndex)
         {
@@ -337,6 +327,54 @@ public class Building : NetworkBehaviour
         trainingTimer -= Time.deltaTime;
         if (trainingTimer <= 0f)
             TryCompleteBatch();
+    }
+
+    private void UpdatePassiveResourceGeneration()
+    {
+        // Only run generation on server or offline single player
+        if (isClient && !isServer) return;
+
+        passiveEcoTimer += Time.deltaTime;
+        if (passiveEcoTimer < 5f) return;
+        passiveEcoTimer = 0f;
+
+        int foodGen = 0;
+        int woodGen = 0;
+        int goldGen = 0;
+
+        if (IsFarmBuilding)
+        {
+            foodGen = TechHorticultureResearched ? 15 : 10;
+        }
+        else if (IsLumberMillBuilding)
+        {
+            woodGen = Mathf.RoundToInt(10 * WoodYieldMultiplier);
+        }
+        else if (IsMarketBuilding && hasMerchantGuilds)
+        {
+            goldGen = 12;
+        }
+
+        if (foodGen == 0 && woodGen == 0 && goldGen == 0) return;
+
+        bool isLocalPlayer = (ownerPlayerId == PlayerColorManager.LocalPlayerIndex);
+        NetworkedPlayer ownerNp = NetworkedPlayer.Get(ownerPlayerId);
+
+        if (ownerNp != null)
+        {
+            ownerNp.AddResources(foodGen, woodGen, goldGen);
+        }
+        else if (isLocalPlayer)
+        {
+            ResourceManager.Instance?.AddResources(foodGen, woodGen, goldGen);
+            if (foodGen > 0) EffectManager.Instance?.PlayFloatingText(transform.position + Vector3.up * 2.2f, $"+{foodGen} Food", Color.green);
+            if (woodGen > 0) EffectManager.Instance?.PlayFloatingText(transform.position + Vector3.up * 2.2f, $"+{woodGen} Wood", Color.green);
+            if (goldGen > 0) EffectManager.Instance?.PlayFloatingText(transform.position + Vector3.up * 2.2f, $"+{goldGen} Gold", Color.yellow);
+        }
+        else if (EnemyAI.Instance != null && (ownerPlayerId == EnemyAI.Instance.enemyPlayerId || ownerPlayerId != PlayerColorManager.LocalPlayerIndex))
+        {
+            EnemyAI.Instance.AddEnemyResources(foodGen, woodGen, goldGen);
+        }
     }
 
     private void OnDestroy()
@@ -395,12 +433,21 @@ public class Building : NetworkBehaviour
     }
 
     private bool hasCustomRallyPoint = false;
+    private Vector3 customRallyPointPos;
     public bool HasCustomRallyPoint => hasCustomRallyPoint;
-    public Vector3 RallyPointPosition => spawnPoint != null ? spawnPoint.position : transform.position;
+    public Vector3 RallyPointPosition
+    {
+        get
+        {
+            if (hasCustomRallyPoint) return customRallyPointPos;
+            if (spawnPoint != null) return spawnPoint.position + spawnPoint.forward * 2.5f;
+            return transform.position + transform.forward * 4.5f;
+        }
+    }
 
     public void SetSpawnPoint(Vector3 worldPos)
     {
-        if (spawnPoint != null) spawnPoint.position = worldPos;
+        customRallyPointPos = worldPos;
         hasCustomRallyPoint = true;
     }
 
@@ -564,8 +611,14 @@ public class Building : NetworkBehaviour
                         ApplyWheelbarrowToVillager(unit as Villager);
                     }
                 }
-                if (spawnPoint != null && Vector3.Distance(pos, spawnPoint.position) > 2f)
-                    unit.SetFirstWaypoint(spawnPoint.position);
+                // Move spawned unit to rally point with random jitter so multiple trained units do not stack inside each other
+                Vector2 jitter2D = Random.insideUnitCircle * 1.5f;
+                Vector3 targetDest = RallyPointPosition + new Vector3(jitter2D.x, 0f, jitter2D.y);
+                if (NavMesh.SamplePosition(targetDest, out NavMeshHit navHit, 5f, NavMesh.AllAreas))
+                    targetDest = navHit.position;
+
+                unit.ClearWaypoints();
+                unit.MoveTo(targetDest);
             }
             if (NetworkServer.active)
             {
@@ -754,9 +807,9 @@ public class Building : NetworkBehaviour
 
     public void SetOwner(int playerId) { ownerPlayerId = playerId; }
 
-    // ────────────────────────────────────────────────────────────────────────
+    // ------------------------------------------------------------------------
     // AoE4 Building Type Identification & Action System
-    // ────────────────────────────────────────────────────────────────────────
+    // ------------------------------------------------------------------------
 
     public bool IsHomeSiteBuilding =>
         (!string.IsNullOrEmpty(gameObject.name) && gameObject.name.IndexOf("HomeSite", System.StringComparison.OrdinalIgnoreCase) >= 0)
@@ -811,10 +864,11 @@ public class Building : NetworkBehaviour
             // 2. Advance Age
             int fCost = CurrentAge == 1 ? 200 : (CurrentAge == 2 ? 400 : 800);
             int gCost = CurrentAge == 1 ? 100 : (CurrentAge == 2 ? 250 : 500);
+            string nextAgeName = CurrentAge == 1 ? "Age II" : (CurrentAge == 2 ? "Age III" : "Age IV");
             actions.Add(new BuildingAction
             {
                 id = "advance_age",
-                title = "Advance to Next Age",
+                title = $"Advance to {nextAgeName}",
                 description = "Advances your civilization to the next Age, unlocking powerful upgrades and granting permanent stat buffs.",
                 costFood = fCost, costWood = 0, costGold = gCost,
                 isOneTimeTech = false,
@@ -834,13 +888,13 @@ public class Building : NetworkBehaviour
             actions.Add(new BuildingAction
             {
                 id = "tech_wheelbarrow",
-                title = "Research Wheelbarrow",
+                title = "Wheelbarrow Tech",
                 description = "Permanently boosts all friendly Villagers' move speed by +25% and carry capacity by +10.",
                 costFood = 0, costWood = 75, costGold = 50,
                 isOneTimeTech = true,
                 isResearched = TechWheelbarrowResearched,
                 isAvailable = () => !TechWheelbarrowResearched && CanAfford(0, 75, 50),
-                getDynamicLabel = () => TechWheelbarrowResearched ? "Wheelbarrow Researched ✓" : "Research Wheelbarrow\n(75 Wood, 50 Gold)",
+                getDynamicLabel = () => TechWheelbarrowResearched ? "Wheelbarrow Researched [Active]" : "Wheelbarrow Tech\n(75 Wood, 50 Gold)",
                 onExecute = () => ResearchWheelbarrow()
             });
 
@@ -848,12 +902,12 @@ public class Building : NetworkBehaviour
             actions.Add(new BuildingAction
             {
                 id = "town_bell",
-                title = "Town Bell / Garrison Heal",
+                title = "Town Bell Heal",
                 description = "Heals all friendly units within 20m for +50 HP and repairs Town Center by +200 HP.",
                 costFood = 50, costWood = 0, costGold = 0,
                 isOneTimeTech = false,
                 isAvailable = () => townBellCooldownTimer <= 0f && CanAfford(50, 0, 0),
-                getDynamicLabel = () => townBellCooldownTimer > 0f ? $"Town Bell ({townBellCooldownTimer:F0}s)" : "Town Bell (Garrison Heal)\n(50 Food)",
+                getDynamicLabel = () => townBellCooldownTimer > 0f ? $"Town Bell ({townBellCooldownTimer:F0}s)" : "Town Bell Heal\n(50 Food)",
                 onExecute = () => RingTownBell()
             });
         }
@@ -889,13 +943,13 @@ public class Building : NetworkBehaviour
             actions.Add(new BuildingAction
             {
                 id = "tech_damascus_steel",
-                title = "Damascus Steel Weapons",
+                title = "Damascus Steel (+6 Atk)",
                 description = "Permanently increases Attack Damage of all existing and future Infantry/Cavalry by +6.",
                 costFood = 100, costWood = 0, costGold = 75,
                 isOneTimeTech = true,
                 isResearched = TechDamascusSteelResearched,
                 isAvailable = () => !TechDamascusSteelResearched && CanAfford(100, 0, 75),
-                getDynamicLabel = () => TechDamascusSteelResearched ? "Damascus Steel Researched ✓ (+6 Atk)" : "Damascus Steel Weapons\n(100 Food, 75 Gold)",
+                getDynamicLabel = () => TechDamascusSteelResearched ? "Damascus Steel Researched (+6 Atk)" : "Damascus Steel (+6 Atk)\n(100 Food, 75 Gold)",
                 onExecute = () => ResearchDamascusSteel()
             });
 
@@ -903,27 +957,27 @@ public class Building : NetworkBehaviour
             actions.Add(new BuildingAction
             {
                 id = "tech_plate_mail",
-                title = "Plate Mail Armor",
+                title = "Plate Mail (+45 HP)",
                 description = "Permanently increases Max HP of all friendly Infantry/Cavalry by +45.",
                 costFood = 0, costWood = 100, costGold = 75,
                 isOneTimeTech = true,
                 isResearched = TechPlateMailResearched,
                 isAvailable = () => !TechPlateMailResearched && CanAfford(0, 100, 75),
-                getDynamicLabel = () => TechPlateMailResearched ? "Plate Mail Researched ✓ (+45 HP)" : "Plate Mail Armor\n(100 Wood, 75 Gold)",
+                getDynamicLabel = () => TechPlateMailResearched ? "Plate Mail Researched (+45 HP)" : "Plate Mail (+45 HP)\n(100 Wood, 75 Gold)",
                 onExecute = () => ResearchPlateMail()
             });
         }
         else if (IsMarketBuilding)
         {
-            // Sell 100 Food -> +80 Gold
+            // Sell 100 Food -> 80 Gold
             actions.Add(new BuildingAction
             {
                 id = "market_sell_food",
-                title = "Sell 100 Food → +80 Gold",
+                title = "Sell 100 Food -> 80 Gold",
                 description = "Instant market trade.",
                 costFood = 100, costWood = 0, costGold = 0,
                 isAvailable = () => CanAfford(100, 0, 0),
-                getDynamicLabel = () => "Sell 100 Food → +80 Gold",
+                getDynamicLabel = () => "Sell 100 Food -> 80 Gold",
                 onExecute = () => TradeMarket(100, 0, 0, 0, 0, 80)
             });
 
@@ -931,23 +985,23 @@ public class Building : NetworkBehaviour
             actions.Add(new BuildingAction
             {
                 id = "market_buy_food",
-                title = "Buy 100 Food ← 120 Gold",
+                title = "Buy 100 Food <- 120 Gold",
                 description = "Instant market trade.",
                 costFood = 0, costWood = 0, costGold = 120,
                 isAvailable = () => CanAfford(0, 0, 120),
-                getDynamicLabel = () => "Buy 100 Food ← 120 Gold",
+                getDynamicLabel = () => "Buy 100 Food <- 120 Gold",
                 onExecute = () => TradeMarket(0, 0, 120, 100, 0, 0)
             });
 
-            // Sell 100 Wood -> +80 Gold
+            // Sell 100 Wood -> 80 Gold
             actions.Add(new BuildingAction
             {
                 id = "market_sell_wood",
-                title = "Sell 100 Wood → +80 Gold",
+                title = "Sell 100 Wood -> 80 Gold",
                 description = "Instant market trade.",
                 costFood = 0, costWood = 100, costGold = 0,
                 isAvailable = () => CanAfford(0, 100, 0),
-                getDynamicLabel = () => "Sell 100 Wood → +80 Gold",
+                getDynamicLabel = () => "Sell 100 Wood -> 80 Gold",
                 onExecute = () => TradeMarket(0, 100, 0, 0, 0, 80)
             });
 
@@ -955,11 +1009,11 @@ public class Building : NetworkBehaviour
             actions.Add(new BuildingAction
             {
                 id = "market_buy_wood",
-                title = "Buy 100 Wood ← 120 Gold",
+                title = "Buy 100 Wood <- 120 Gold",
                 description = "Instant market trade.",
                 costFood = 0, costWood = 0, costGold = 120,
                 isAvailable = () => CanAfford(0, 0, 120),
-                getDynamicLabel = () => "Buy 100 Wood ← 120 Gold",
+                getDynamicLabel = () => "Buy 100 Wood <- 120 Gold",
                 onExecute = () => TradeMarket(0, 0, 120, 0, 100, 0)
             });
 
@@ -967,13 +1021,13 @@ public class Building : NetworkBehaviour
             actions.Add(new BuildingAction
             {
                 id = "tech_merchant_guilds",
-                title = "Merchant Guilds",
+                title = "Merchant Guilds (+Gold)",
                 description = "Activates passive +12 Gold every 5s from this Market.",
                 costFood = 0, costWood = 100, costGold = 100,
                 isOneTimeTech = true,
                 isResearched = hasMerchantGuilds,
                 isAvailable = () => !hasMerchantGuilds && CanAfford(0, 100, 100),
-                getDynamicLabel = () => hasMerchantGuilds ? "Merchant Guilds Active ✓ (+12g/5s)" : "Research Merchant Guilds\n(100 Wood, 100 Gold)",
+                getDynamicLabel = () => hasMerchantGuilds ? "Merchant Guilds Active (+12g/5s)" : "Merchant Guilds (+Gold)\n(100 Wood, 100 Gold)",
                 onExecute = () => ResearchMerchantGuilds()
             });
         }
@@ -983,13 +1037,13 @@ public class Building : NetworkBehaviour
             actions.Add(new BuildingAction
             {
                 id = "tech_double_broadaxe",
-                title = "Double-Broadaxe",
+                title = "Double-Broadaxe (+50%)",
                 description = "Increases passive and villager wood yield by +50%.",
                 costFood = 75, costWood = 0, costGold = 50,
                 isOneTimeTech = true,
                 isResearched = TechDoubleBroadaxeResearched,
                 isAvailable = () => !TechDoubleBroadaxeResearched && CanAfford(75, 0, 50),
-                getDynamicLabel = () => TechDoubleBroadaxeResearched ? "Double-Broadaxe Active ✓ (+50% Wood)" : "Research Double-Broadaxe\n(75 Food, 50 Gold)",
+                getDynamicLabel = () => TechDoubleBroadaxeResearched ? "Double-Broadaxe Active (+50% Wood)" : "Double-Broadaxe (+50%)\n(75 Food, 50 Gold)",
                 onExecute = () => ResearchDoubleBroadaxe()
             });
 
@@ -997,13 +1051,13 @@ public class Building : NetworkBehaviour
             actions.Add(new BuildingAction
             {
                 id = "tech_forestry",
-                title = "Forestry",
+                title = "Forestry (+Speed/HP)",
                 description = "Increases Lumber Mill production speed and adds +300 Max HP.",
                 costFood = 0, costWood = 75, costGold = 50,
                 isOneTimeTech = true,
                 isResearched = TechForestryResearched,
                 isAvailable = () => !TechForestryResearched && CanAfford(0, 75, 50),
-                getDynamicLabel = () => TechForestryResearched ? "Forestry Researched ✓ (+300 HP)" : "Research Forestry\n(75 Wood, 50 Gold)",
+                getDynamicLabel = () => TechForestryResearched ? "Forestry Researched (+300 HP)" : "Forestry (+Speed/HP)\n(75 Wood, 50 Gold)",
                 onExecute = () => ResearchForestry()
             });
 
@@ -1015,7 +1069,7 @@ public class Building : NetworkBehaviour
                 description = "Trade 50 Food to immediately receive 100 Wood.",
                 costFood = 50, costWood = 0, costGold = 0,
                 isAvailable = () => CanAfford(50, 0, 0),
-                getDynamicLabel = () => "Emergency Timber\n(50 Food → +100 Wood)",
+                getDynamicLabel = () => "Emergency Timber\n(50 Food -> 100 Wood)",
                 onExecute = () => EmergencyTimber()
             });
         }
@@ -1025,13 +1079,13 @@ public class Building : NetworkBehaviour
             actions.Add(new BuildingAction
             {
                 id = "tech_horticulture",
-                title = "Horticulture",
+                title = "Horticulture (+50% Food)",
                 description = "Increases Farm food output by +50% (+15 Food per cycle).",
                 costFood = 0, costWood = 75, costGold = 50,
                 isOneTimeTech = true,
                 isResearched = TechHorticultureResearched,
                 isAvailable = () => !TechHorticultureResearched && CanAfford(0, 75, 50),
-                getDynamicLabel = () => TechHorticultureResearched ? "Horticulture Active ✓ (+15 Food/tick)" : "Research Horticulture\n(75 Wood, 50 Gold)",
+                getDynamicLabel = () => TechHorticultureResearched ? "Horticulture Active (+15 Food/tick)" : "Horticulture (+50% Food)\n(75 Wood, 50 Gold)",
                 onExecute = () => ResearchHorticulture()
             });
 
@@ -1043,7 +1097,7 @@ public class Building : NetworkBehaviour
                 description = "Trade 40 Gold to immediately harvest 120 Food.",
                 costFood = 0, costWood = 0, costGold = 40,
                 isAvailable = () => CanAfford(0, 0, 40),
-                getDynamicLabel = () => "Bountiful Harvest\n(40 Gold → +120 Food)",
+                getDynamicLabel = () => "Bountiful Harvest\n(40 Gold -> 120 Food)",
                 onExecute = () => BountifulHarvest()
             });
         }
@@ -1053,13 +1107,13 @@ public class Building : NetworkBehaviour
             actions.Add(new BuildingAction
             {
                 id = "tech_arrow_slits",
-                title = "Arrow Slits",
+                title = "Arrow Slits (+10 Dmg)",
                 description = "Boosts this Tower's attack damage by +10 and range by +4m.",
                 costFood = 0, costWood = 100, costGold = 75,
                 isOneTimeTech = true,
                 isResearched = hasArrowSlits,
                 isAvailable = () => !hasArrowSlits && CanAfford(0, 100, 75),
-                getDynamicLabel = () => hasArrowSlits ? "Arrow Slits Active ✓ (+10 Atk, +4m)" : "Research Arrow Slits\n(100 Wood, 75 Gold)",
+                getDynamicLabel = () => hasArrowSlits ? "Arrow Slits Active (+10 Atk, +4m)" : "Arrow Slits (+10 Dmg)\n(100 Wood, 75 Gold)",
                 onExecute = () => ResearchArrowSlits()
             });
 
@@ -1067,39 +1121,39 @@ public class Building : NetworkBehaviour
             actions.Add(new BuildingAction
             {
                 id = "tech_boiling_oil",
-                title = "Boiling Oil & Stonework",
+                title = "Boiling Oil (+400 HP)",
                 description = "Increases Tower Max HP by +400, heals to full, and increases fire rate.",
                 costFood = 0, costWood = 125, costGold = 50,
                 isOneTimeTech = true,
                 isResearched = hasBoilingOil,
                 isAvailable = () => !hasBoilingOil && CanAfford(0, 125, 50),
-                getDynamicLabel = () => hasBoilingOil ? "Boiling Oil Active ✓ (+400 HP, Faster)" : "Boiling Oil & Stonework\n(125 Wood, 50 Gold)",
+                getDynamicLabel = () => hasBoilingOil ? "Boiling Oil Active (+400 HP, Faster)" : "Boiling Oil (+400 HP)\n(125 Wood, 50 Gold)",
                 onExecute = () => ResearchBoilingOil()
             });
         }
         else if (IsWallBuilding)
         {
-            // 1. Fortify Stone Ramparts
+            // 1. Fortify Wall
             actions.Add(new BuildingAction
             {
                 id = "fortify_ramparts",
-                title = "Fortify Stone Ramparts",
+                title = "Fortify Wall (+250 HP)",
                 description = "Repairs Wall to 100% HP and adds +250 Max HP.",
                 costFood = 0, costWood = 30, costGold = 0,
                 isAvailable = () => CanAfford(0, 30, 0),
-                getDynamicLabel = () => "Fortify Ramparts\n(30 Wood → +250 HP & Repair)",
+                getDynamicLabel = () => "Fortify Wall (+250 HP)\n(30 Wood -> +250 HP)",
                 onExecute = () => FortifyWall()
             });
 
-            // 2. Toggle Gatehouse
+            // 2. Toggle Gate (Open/Close)
             actions.Add(new BuildingAction
             {
                 id = "toggle_gatehouse",
-                title = "Toggle Gatehouse",
+                title = "Toggle Gate (Open/Close)",
                 description = "Opens or closes gate passage for friendly unit movement.",
                 costFood = 0, costWood = 0, costGold = 0,
                 isAvailable = () => true,
-                getDynamicLabel = () => isGateOpen ? "Gatehouse: OPEN (Click to Close)" : "Gatehouse: CLOSED (Click to Open)",
+                getDynamicLabel = () => isGateOpen ? "Gate: OPEN (Click to Close)" : "Gate: CLOSED (Click to Open)",
                 onExecute = () => ToggleGate()
             });
         }

@@ -162,6 +162,21 @@ public class BuildingSpawner : MonoBehaviour
             if (b != null && b.SpawnablePrefabs != null && b.SpawnablePrefabs.Count > 0)
                 vPrefab = b.SpawnablePrefabs[0];
         }
+        if (vPrefab == null)
+        {
+            GameObject[] all = Resources.FindObjectsOfTypeAll<GameObject>();
+            foreach (var go in all)
+            {
+                if (go != null && !go.scene.IsValid() && go.name.Equals("Villager", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    if (go.GetComponent<Unit>() != null)
+                    {
+                        vPrefab = go;
+                        break;
+                    }
+                }
+            }
+        }
         if (vPrefab == null) return;
 
         // Arrange starting villagers neatly in front of the Town Center (3.5m offset facing map center)

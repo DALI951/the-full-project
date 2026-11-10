@@ -35,7 +35,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 7451303346450509203}
+  - {fileID: 4432433876726548468}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!65 &5477128431388810572
@@ -160,7 +160,7 @@ MonoBehaviour:
     m_Bits: 4294967295
   customArrowPrefab: {fileID: 0}
   launchHeightOffset: 3.4
---- !u!1001 &6981390412248369784
+--- !u!1001 &4182034657221337119
 PrefabInstance:
   m_ObjectHideFlags: 0
   serializedVersion: 2
@@ -253,8 +253,8 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 2dc0cbd25a9047340897c98da87c3d03, type: 3}
---- !u!4 &7451303346450509203 stripped
+--- !u!4 &4432433876726548468 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 2dc0cbd25a9047340897c98da87c3d03, type: 3}
-  m_PrefabInstance: {fileID: 6981390412248369784}
+  m_PrefabInstance: {fileID: 4182034657221337119}
   m_PrefabAsset: {fileID: 0}

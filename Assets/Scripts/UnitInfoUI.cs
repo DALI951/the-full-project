@@ -58,36 +58,36 @@ public class UnitInfoUI : MonoBehaviour
         {
             return (
                 "<color=#E5C158><b>MASTER BUILDER & ENGINEER</b></color>",
-                "Worker & Builder — Gathers Food, Wood, Gold & constructs fortifications. Dedicated construction specialist with accelerated building speed."
+                "Worker & Builder - Gathers Food, Wood, Gold & constructs fortifications. Dedicated construction specialist with accelerated building speed."
             );
         }
         if (unit is Villager || (unit.UnitType != null && unit.UnitType.Contains("Villager")) || (unit.UnitName != null && unit.UnitName.Contains("Villager")))
         {
             return (
                 "<color=#E5C158><b>WORKER & VILLAGER</b></color>",
-                "Worker & Builder — Gathers Food, Wood, Gold & constructs fortifications. The economic backbone of the empire."
+                "Worker & Builder - Gathers Food, Wood, Gold & constructs fortifications. The economic backbone of the empire."
             );
         }
         if (unit is Infantry || (unit.UnitType != null && unit.UnitType.Contains("Infantry")) || (unit.UnitName != null && unit.UnitName.Contains("Infantry")))
         {
             return (
                 "<color=#E5C158><b>HEAVY MELEE INFANTRY</b></color>",
-                "Heavy Melee Infantry — Strong vs Spearmen & Buildings. Armed with broadsword and reinforced shield for frontline combat."
+                "Heavy Melee Infantry - Strong vs Spearmen & Buildings. Armed with broadsword and reinforced shield for frontline combat."
             );
         }
         if (unit is Cavalry || (unit.UnitType != null && unit.UnitType.Contains("Cavalry")) || (unit.UnitName != null && unit.UnitName.Contains("Cavalry")))
         {
             return (
                 "<color=#E5C158><b>ROYAL LANCER CAVALRY</b></color>",
-                "Royal Lancer Cavalry — Fast flanking shock unit. High mobility and devastating charge damage against unfortified enemies."
+                "Royal Lancer Cavalry - Fast flanking shock unit. High mobility and devastating charge damage against unfortified enemies."
             );
         }
 
         string rawType = string.IsNullOrEmpty(unit.UnitType) ? unit.UnitName : unit.UnitType;
         string title = $"<color=#E5C158><b>{SanitizeName(rawType).ToUpper()}</b></color>";
         string desc = !string.IsNullOrEmpty(unit.UnitDescription)
-            ? unit.UnitDescription
-            : "Imperial Realm Unit — Trained at specialized kingdom military structures.";
+            ? unit.UnitDescription.Replace("—", "-").Replace("–", "-")
+            : "Imperial Realm Unit - Trained at specialized kingdom military structures.";
         return (title, desc);
     }
 
@@ -181,7 +181,7 @@ public class UnitInfoUI : MonoBehaviour
             if (typeLinePrefab == null || typeListContainer == null) break;
             GameObject line = Instantiate(typeLinePrefab, typeListContainer);
             TMP_Text txt    = line.GetComponent<TMP_Text>();
-            if (txt != null) txt.text = $"<color=#E0C068>{kvp.Key}</color>  ×  <b>{kvp.Value}</b>";
+            if (txt != null) txt.text = $"<color=#E0C068>{kvp.Key}</color>  x  <b>{kvp.Value}</b>";
             typeLines.Add(line);
         }
 

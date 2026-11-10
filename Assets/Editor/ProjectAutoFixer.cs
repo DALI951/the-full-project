@@ -494,6 +494,7 @@ public static class ProjectAutoFixer
         FixUnitPrefabGeneral("Assets/Prefabs/Infantry.prefab", "Infantry", "Infantry");
         FixUnitPrefabGeneral("Assets/Prefabs/Villager.prefab", "Villager", "Villager");
         FixUnitPrefabGeneral("Assets/Prefabs/Builder.prefab", "Builder", "Builder");
+        FixVillagerAndBuilderPrefabsExplicit();
     }
 
     private static void FixCavalryPrefab()
@@ -1475,5 +1476,256 @@ public static class ProjectAutoFixer
         }
 
         return null;
+    }
+
+    public static void DiagnoseVillagerAnimation()
+    {
+        Debug.Log("===============================================================");
+        Debug.Log("=== VILLAGER & UNIT ANIMATION DIAGNOSTIC ===");
+        Debug.Log("===============================================================");
+
+        string[] prefabs = { "Assets/Prefabs/Villager.prefab", "Assets/Prefabs/Builder.prefab", "Assets/Prefabs/Infantry.prefab", "Assets/Prefabs/Cavarly.prefab" };
+        foreach (string prefabPath in prefabs)
+        {
+            GameObject root = PrefabUtility.LoadPrefabContents(prefabPath);
+            if (root == null)
+            {
+                Debug.LogError($"Could not load prefab: {prefabPath}");
+                continue;
+            }
+
+            try
+            {
+                Debug.Log($"\n--- Prefab: {prefabPath} ---");
+                Villager v = root.GetComponent<Villager>();
+                Unit u = root.GetComponent<Unit>();
+                Animator rootAnim = root.GetComponent<Animator>();
+                Animator[] allAnims = root.GetComponentsInChildren<Animator>(true);
+
+                Debug.Log($"Root Animator: {(rootAnim != null ? "FOUND" : "NULL")}");
+                if (rootAnim != null)
+                {
+                    Debug.Log($"  Root Anim Avatar: {(rootAnim.avatar != null ? rootAnim.avatar.name : "NULL")}, valid={rootAnim.avatar?.isValid}, isHuman={rootAnim.avatar?.isHuman}");
+                    Debug.Log($"  Root Anim Controller: {(rootAnim.runtimeAnimatorController != null ? rootAnim.runtimeAnimatorController.name : "NULL")}");
+                }
+
+                Debug.Log($"Total Animators in prefab: {allAnims.Length}");
+                for (int i = 0; i < allAnims.Length; i++)
+                {
+                    var a = allAnims[i];
+                    string fullPath = a.gameObject.name;
+                    Transform p = a.transform.parent;
+                    while (p != null) { fullPath = p.name + "/" + fullPath; p = p.parent; }
+                    Debug.Log($"  Anim #{i} on [{fullPath}]: avatar={(a.avatar != null ? a.avatar.name : "NULL")}, ctrl={(a.runtimeAnimatorController != null ? a.runtimeAnimatorController.name : "NULL")}");
+                }
+
+                if (v != null)
+                {
+                    Debug.Log($"Villager.animator field points to: {(v.animator != null ? v.animator.gameObject.name : "NULL")}");
+                }
+
+                // Print hierarchy
+                PrintHierarchy(root.transform, "  ");
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+        }
+
+        // Check FBX model assets
+        Debug.Log("\n--- FBX Model Check ---");
+        string idleFbx = "Assets/ressources/villager/Idle.fbx";
+        GameObject idleGo = AssetDatabase.LoadAssetAtPath<GameObject>(idleFbx);
+        if (idleGo != null)
+        {
+            Animator idleAnim = idleGo.GetComponent<Animator>();
+            Debug.Log($"Idle.fbx GameObject: {idleGo.name}, has Animator: {idleAnim != null}, avatar: {idleAnim?.avatar?.name}");
+        }
+
+        string walkFbx = "Assets/ressources/villager/Walking.fbx";
+        GameObject walkGo = AssetDatabase.LoadAssetAtPath<GameObject>(walkFbx);
+        if (walkGo != null)
+        {
+            Animator walkAnim = walkGo.GetComponent<Animator>();
+            Debug.Log($"Walking.fbx GameObject: {walkGo.name}, has Animator: {walkAnim != null}, avatar: {walkAnim?.avatar?.name}");
+        }
+
+        Debug.Log("===============================================================");
+    }
+
+    public static void TestVillagerAnimationPlayback()
+    {
+        Debug.Log("===============================================================");
+        Debug.Log("=== TESTING VILLAGER ANIMATION PLAYBACK IN ISOLATION ===");
+        Debug.Log("===============================================================");
+
+        // 1. Fix both Villager and Builder prefabs
+        FixVillagerAndBuilderPrefabsExplicit();
+
+        // 2. Instantiate and test in runtime simulation
+        string[] testPrefabs = { "Assets/Prefabs/Villager.prefab", "Assets/Prefabs/Builder.prefab" };
+        foreach (var pPath in testPrefabs)
+        {
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(pPath);
+            GameObject inst = UnityEngine.Object.Instantiate(prefab);
+            try
+            {
+                Villager v = inst.GetComponent<Villager>();
+                Animator anim = inst.GetComponent<Animator>();
+                Debug.Log($"[{inst.name}] Root Animator: {(anim != null ? "OK" : "NULL")}, Controller: {anim?.runtimeAnimatorController?.name}, Avatar: {anim?.avatar?.name}");
+                Debug.Log($"[{inst.name}] Villager.animator field: {v?.animator?.name}");
+
+                Transform rightLeg = inst.transform.Find("Breathing Idle/mixamorig:Hips/mixamorig:RightUpLeg/mixamorig:RightLeg");
+                Transform leftLeg = inst.transform.Find("Breathing Idle/mixamorig:Hips/mixamorig:LeftUpLeg/mixamorig:LeftLeg");
+
+                Vector3 initRightRot = rightLeg != null ? rightLeg.localEulerAngles : Vector3.zero;
+                Vector3 initLeftRot = leftLeg != null ? leftLeg.localEulerAngles : Vector3.zero;
+
+                // Test Idle State
+                anim.Update(0.1f);
+                var idleState = anim.GetCurrentAnimatorStateInfo(0);
+                Debug.Log($"[{inst.name}] Initial State: IsName('Idle') = {idleState.IsName("Idle")}, length={idleState.length}");
+
+                // Trigger Walk State
+                anim.SetBool("IsMoving", true);
+                anim.Update(0.05f); // Take transition
+                anim.Update(0.25f); // Advance walk cycle
+
+                var walkState = anim.GetCurrentAnimatorStateInfo(0);
+                Debug.Log($"[{inst.name}] After IsMoving=true: IsName('Walking') = {walkState.IsName("Walking")}, normalizedTime={walkState.normalizedTime:F2}");
+
+                Vector3 walkRightRot = rightLeg != null ? rightLeg.localEulerAngles : Vector3.zero;
+                Vector3 walkLeftRot = leftLeg != null ? leftLeg.localEulerAngles : Vector3.zero;
+
+                float rightDelta = Vector3.Distance(initRightRot, walkRightRot);
+                float leftDelta = Vector3.Distance(initLeftRot, walkLeftRot);
+
+                Debug.Log($"[{inst.name}] SKELETAL VERIFICATION: RightLeg Rot Delta = {rightDelta:F2} deg, LeftLeg Rot Delta = {leftDelta:F2} deg");
+                if (rightDelta > 0.5f || leftDelta > 0.5f)
+                {
+                    Debug.Log($"SUCCESS: [{inst.name}] SKELETAL WALK ANIMATION IS ACTIVELY DEFORMING BONES!");
+                }
+                else
+                {
+                    Debug.LogWarning($"FAIL: [{inst.name}] Bones did not rotate during walk cycle!");
+                }
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(inst);
+            }
+        }
+
+        Debug.Log("===============================================================");
+    }
+
+    public static void FixVillagerAndBuilderPrefabsExplicit()
+    {
+        string[] targetPrefabs = { "Assets/Prefabs/Villager.prefab", "Assets/Prefabs/Builder.prefab" };
+        RuntimeAnimatorController villagerCtrl = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>("Assets/Animations/VillagerAnimator.controller");
+        
+        // Load IdleAvatar from Idle.fbx
+        Avatar idleAvatar = null;
+        UnityEngine.Object[] subAssets = AssetDatabase.LoadAllAssetsAtPath("Assets/ressources/villager/Idle.fbx");
+        foreach (var sub in subAssets)
+        {
+            if (sub is Avatar av)
+            {
+                idleAvatar = av;
+                break;
+            }
+        }
+
+        Debug.Log($"[FixVillagerAndBuilder] Loaded IdleAvatar: {(idleAvatar != null ? idleAvatar.name : "NULL")}");
+
+        foreach (string prefabPath in targetPrefabs)
+        {
+            GameObject root = PrefabUtility.LoadPrefabContents(prefabPath);
+            if (root == null) continue;
+
+            try
+            {
+                bool modified = false;
+
+                // 1. Remove all child Animator components (e.g. on Breathing Idle)
+                Animator[] allAnims = root.GetComponentsInChildren<Animator>(true);
+                foreach (var a in allAnims)
+                {
+                    if (a.gameObject != root)
+                    {
+                        Debug.Log($"[FixVillagerAndBuilder] Destroying conflicting child Animator on {a.gameObject.name} in {Path.GetFileName(prefabPath)}");
+                        UnityEngine.Object.DestroyImmediate(a, true);
+                        modified = true;
+                    }
+                }
+
+                // 2. Ensure Root Animator exists, has IdleAvatar, and has VillagerAnimator controller
+                Animator rootAnim = root.GetComponent<Animator>();
+                if (rootAnim == null)
+                {
+                    rootAnim = root.AddComponent<Animator>();
+                    modified = true;
+                }
+
+                if (rootAnim.avatar != idleAvatar && idleAvatar != null)
+                {
+                    rootAnim.avatar = idleAvatar;
+                    modified = true;
+                }
+
+                if (rootAnim.runtimeAnimatorController != villagerCtrl && villagerCtrl != null)
+                {
+                    rootAnim.runtimeAnimatorController = villagerCtrl;
+                    modified = true;
+                }
+
+                rootAnim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                rootAnim.applyRootMotion = false;
+
+                // 3. Ensure Villager / Builder component has animator reference set
+                Villager v = root.GetComponent<Villager>();
+                if (v != null)
+                {
+                    if (v.animator != rootAnim)
+                    {
+                        v.animator = rootAnim;
+                        modified = true;
+                    }
+
+                    // Also assign unitRenderer
+                    SkinnedMeshRenderer smr = root.GetComponentInChildren<SkinnedMeshRenderer>(true);
+                    SerializedObject so = new SerializedObject(v);
+                    SerializedProperty uRendProp = so.FindProperty("unitRenderer");
+                    if (uRendProp != null && smr != null && uRendProp.objectReferenceValue != smr)
+                    {
+                        uRendProp.objectReferenceValue = smr;
+                        so.ApplyModifiedProperties();
+                        modified = true;
+                    }
+                }
+
+                if (modified)
+                {
+                    PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
+                    Debug.Log($"[FixVillagerAndBuilder] Successfully repaired and saved {Path.GetFileName(prefabPath)}");
+                }
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+        }
+    }
+
+    private static void PrintHierarchy(Transform t, string indent)
+    {
+        var comps = t.GetComponents<Component>();
+        string compList = string.Join(", ", comps.Where(c => c != null).Select(c => c.GetType().Name));
+        Debug.Log($"{indent}[{t.name}] Comps: ({compList}) pos={t.localPosition} rot={t.localEulerAngles} scale={t.localScale}");
+        for (int i = 0; i < t.childCount; i++)
+        {
+            PrintHierarchy(t.GetChild(i), indent + "  ");
+        }
     }
 }

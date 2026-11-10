@@ -6,55 +6,78 @@ using System.Linq;
 
 public class GameOverManager : NetworkBehaviour
 {
-    public static GameOverManager Instance { get; private set; }
+    private static GameOverManager _instance;
+    public static GameOverManager Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                _instance = FindObjectOfType<GameOverManager>();
+                if (_instance == null)
+                {
+                    GameObject go = new GameObject("GameOverManager");
+                    _instance = go.AddComponent<GameOverManager>();
+                }
+            }
+            return _instance;
+        }
+        private set => _instance = value;
+    }
 
     [SerializeField] private GameObject gameOverPanel;
     [SerializeField] private TMP_Text   gameOverText;
 
     private void Awake()
     {
-        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
-        Instance = this;
+        if (_instance != null && _instance != this) { Destroy(gameObject); return; }
+        _instance = this;
         if (gameOverPanel != null) gameOverPanel.SetActive(false);
     }
 
-    [Server]
     public void CheckPlayers()
     {
         CheckGameOver(-1);
     }
 
-    [Server]
     public void CheckGameOver(int playerId)
     {
-        // If a specific player is passed, first check if that player has any buildings or units left
-        if (playerId >= 0 && HasAnyAliveEntities(playerId))
+        // 1. In offline single player mode (!NetworkServer.active)
+        if (!NetworkServer.active)
         {
-            // Player is not eliminated
+            int localId = PlayerColorManager.LocalPlayerIndex;
+            int enemyId = EnemyAI.Instance != null ? EnemyAI.Instance.enemyPlayerId : 1;
+
+            bool playerHasBuildings = HasAnyAliveBuildings(localId);
+            bool enemyHasBuildings = HasAnyAliveBuildings(enemyId);
+
+            if (!playerHasBuildings)
+            {
+                ShowGameOver(false); // Defeat
+                return;
+            }
+            if (!enemyHasBuildings)
+            {
+                ShowGameOver(true); // Victory
+                return;
+            }
             return;
         }
 
-        // Collect all alive player IDs
-        HashSet<int> alivePlayerIds = new HashSet<int>();
+        // 2. In multiplayer / host mode (NetworkServer.active)
+        HashSet<int> aliveBuildingPlayerIds = new HashSet<int>();
         foreach (Building b in Building.AllBuildings)
         {
-            if (b != null) alivePlayerIds.Add(b.OwnerPlayerId);
-        }
-        if (UnitSelectionManager.Instance?.allUnitsList != null)
-        {
-            foreach (Unit u in UnitSelectionManager.Instance.allUnitsList)
-            {
-                if (u != null) alivePlayerIds.Add(u.OwnerPlayerId);
-            }
+            if (b != null && b.CurrentBuildingHealth > 0)
+                aliveBuildingPlayerIds.Add(b.OwnerPlayerId);
         }
 
         List<NetworkedPlayer> allPlayers = new List<NetworkedPlayer>(NetworkedPlayer.AllPlayersList);
 
-        // 1. In a 2-player game (or 1-player vs AI):
-        // If allPlayers has <= 2 players, work as before
+        // In a 2-player game (or 1-player vs AI):
         if (allPlayers.Count <= 2)
         {
-            if (playerId >= 0)
+            if (playerId >= 0 && !aliveBuildingPlayerIds.Contains(playerId))
             {
                 RpcGameOver(playerId);
             }
@@ -62,7 +85,7 @@ public class GameOverManager : NetworkBehaviour
             {
                 foreach (var p in allPlayers)
                 {
-                    if (!alivePlayerIds.Contains(p.playerIndex))
+                    if (!aliveBuildingPlayerIds.Contains(p.playerIndex))
                     {
                         RpcGameOver(p.playerIndex);
                         return;
@@ -72,16 +95,14 @@ public class GameOverManager : NetworkBehaviour
             return;
         }
 
-        // 2. In a 3+ player or team game:
-        // If the local/host player is eliminated, match ends for them
+        // In a 3+ player or team game:
         int hostPlayerId = allPlayers.Count > 0 ? allPlayers[0].playerIndex : 0;
-        if (!alivePlayerIds.Contains(hostPlayerId))
+        if (!aliveBuildingPlayerIds.Contains(hostPlayerId))
         {
             RpcGameOver(hostPlayerId);
             return;
         }
 
-        // Check if teams exist (i.e. more than one distinct team index among players)
         bool hasTeams = allPlayers.Select(p => p.teamIndex).Distinct().Count() > 1;
 
         if (hasTeams)
@@ -90,7 +111,7 @@ public class GameOverManager : NetworkBehaviour
             int survivingTeam = -1;
             foreach (var p in allPlayers)
             {
-                if (alivePlayerIds.Contains(p.playerIndex))
+                if (aliveBuildingPlayerIds.Contains(p.playerIndex))
                 {
                     aliveTeams.Add(p.teamIndex);
                     survivingTeam = p.teamIndex;
@@ -105,16 +126,16 @@ public class GameOverManager : NetworkBehaviour
         }
         else
         {
-            // Free-for-all: distinct players with alive entities
+            // Free-for-all: distinct players with alive buildings
             List<int> survivingPlayers = new List<int>();
             foreach (var p in allPlayers)
             {
-                if (alivePlayerIds.Contains(p.playerIndex))
+                if (aliveBuildingPlayerIds.Contains(p.playerIndex))
                     survivingPlayers.Add(p.playerIndex);
             }
 
             // Also check any alive IDs not in allPlayers (e.g. AI bot)
-            foreach (int id in alivePlayerIds)
+            foreach (int id in aliveBuildingPlayerIds)
             {
                 if (!survivingPlayers.Contains(id) && allPlayers.All(p => p.playerIndex != id))
                     survivingPlayers.Add(id);
@@ -129,20 +150,19 @@ public class GameOverManager : NetworkBehaviour
         }
     }
 
-    private bool HasAnyAliveEntities(int playerId)
+    public bool HasAnyAliveBuildings(int playerId)
     {
         foreach (Building b in Building.AllBuildings)
         {
-            if (b != null && b.OwnerPlayerId == playerId) return true;
-        }
-        if (UnitSelectionManager.Instance?.allUnitsList != null)
-        {
-            foreach (Unit u in UnitSelectionManager.Instance.allUnitsList)
-            {
-                if (u != null && u.OwnerPlayerId == playerId) return true;
-            }
+            if (b != null && b.OwnerPlayerId == playerId && b.CurrentBuildingHealth > 0)
+                return true;
         }
         return false;
+    }
+
+    private bool HasAnyAliveEntities(int playerId)
+    {
+        return HasAnyAliveBuildings(playerId);
     }
 
     [ClientRpc]
@@ -180,14 +200,21 @@ public class GameOverManager : NetworkBehaviour
         if (gameOverPanel != null) gameOverPanel.SetActive(true);
         if (gameOverText != null)
             gameOverText.text = won ? "YOU WIN!" : "YOU LOSE!";
+
         if (won)
+        {
             AudioManager.Instance?.PlayVictoryMusic();
+            WinLoseUI.Instance?.ShowWin();
+        }
         else
+        {
             AudioManager.Instance?.PlayDefeatMusic();
+            WinLoseUI.Instance?.ShowLose();
+        }
     }
 
     private void OnDestroy()
     {
-        if (Instance == this) Instance = null;
+        if (_instance == this) _instance = null;
     }
 }

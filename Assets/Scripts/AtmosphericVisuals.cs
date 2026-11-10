@@ -139,24 +139,18 @@ public class AtmosphericVisuals : MonoBehaviour
 
     public void ScanAndApplyCourtyards()
     {
-        InitCourtyardMaterial();
-
+        // KayKit buildings have authentic sculpted 3D foundations that sit naturally on terrain.
+        // Clean up any lingering legacy CourtyardApron objects.
         Building[] buildings = FindObjectsOfType<Building>();
         foreach (Building b in buildings)
         {
             if (b == null) continue;
-            if (processedBuildings.Contains(b)) continue;
-
-            string bName = b.gameObject.name;
-            // Only add to major structures; skip linear defensive walls, gates, and small flags
-            if (bName.Contains("Wall") || bName.Contains("Gate") || bName.Contains("Flag"))
+            Transform existing = b.transform.Find("CourtyardApron");
+            if (existing != null)
             {
-                processedBuildings.Add(b);
-                continue;
+                if (Application.isPlaying) Destroy(existing.gameObject);
+                else DestroyImmediate(existing.gameObject);
             }
-
-            AddCourtyardApron(b);
-            processedBuildings.Add(b);
         }
     }
 

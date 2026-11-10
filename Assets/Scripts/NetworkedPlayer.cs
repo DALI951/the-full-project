@@ -11,9 +11,9 @@ public class NetworkedPlayer : NetworkBehaviour
     [SyncVar] public int teamIndex = 0;
     [SyncVar] public bool isAI = false;
 
-    [SyncVar(hook = nameof(OnSyncFoodChanged))]          private int syncFood = 200;
-    [SyncVar(hook = nameof(OnSyncWoodChanged))]          private int syncWood = 150;
-    [SyncVar(hook = nameof(OnSyncGoldChanged))]          private int syncGold = 100;
+    [SyncVar(hook = nameof(OnSyncFoodChanged))]          private int syncFood = 500;
+    [SyncVar(hook = nameof(OnSyncWoodChanged))]          private int syncWood = 500;
+    [SyncVar(hook = nameof(OnSyncGoldChanged))]          private int syncGold = 300;
     [SyncVar(hook = nameof(OnSyncPopulationChanged))]    private int syncPopulation = 0;
     [SyncVar(hook = nameof(OnSyncMaxPopulationChanged))] private int syncMaxPopulation = 20;
 
@@ -103,9 +103,9 @@ public class NetworkedPlayer : NetworkBehaviour
         playerIndex = index;
         displayName = name;
         teamIndex = team;
-        syncFood = 200;
-        syncWood = 150;
-        syncGold = 100;
+        syncFood = 500;
+        syncWood = 500;
+        syncGold = 300;
         if (isLocalPlayer)
             ResourceUI.Instance?.Refresh(syncFood, syncWood, syncGold);
     }

@@ -259,9 +259,11 @@ public class ResourceNode : MonoBehaviour
         ResourceNode best = null;
         float bestDist = float.MaxValue;
 
+        RegisteredNodes.RemoveAll(n => n == null);
+
         foreach (ResourceNode n in RegisteredNodes)
         {
-            if (n == null || n == exclude || n.depleted || n.isDead) continue;
+            if (n == null || n == exclude || n.depleted || n.remainingAmount <= 0) continue;
             if (n.resourceType != type) continue;
             if (!n.HasAvailableSlot()) continue; // CRITICAL: only find resources with open slots
             float d = Vector3.Distance(pos, n.transform.position);
@@ -276,9 +278,11 @@ public class ResourceNode : MonoBehaviour
         ResourceNode best = null;
         float bestDist = float.MaxValue;
 
+        RegisteredNodes.RemoveAll(n => n == null);
+
         foreach (ResourceNode n in RegisteredNodes)
         {
-            if (n == null || n == exclude || n.depleted) continue;
+            if (n == null || n == exclude || n.depleted || n.remainingAmount <= 0) continue;
             if (!n.HasAvailableSlot()) continue;
             float d = Vector3.Distance(pos, n.transform.position);
             if (d > maxDist) continue;

@@ -203,35 +203,6 @@ public class GameUI : MonoBehaviour
             string tip = BuildSpawnTooltip(building, capturedIndex, label, unitComp);
             AttachHoverTooltip(btnObj, tip);
         }
-
-        // Town Center / HomeSite can also advance Age directly from its panel!
-        int curAge = AgeManager.Instance != null ? AgeManager.Instance.CurrentAge : 1;
-        if (building is HomeSite && curAge < AgeManager.AGE_IMPERIAL)
-        {
-            GameObject ageBtnObj = Instantiate(spawnButtonPrefab, buttonContainer);
-            spawnedButtons.Add(ageBtnObj);
-
-            TMP_Text ageTxt = ageBtnObj.GetComponentInChildren<TMP_Text>();
-            if (ageTxt != null)
-            {
-                ageTxt.text = $"<color=#E5C158><b>Advance\n{AoE4HUDThemer.GetNextAgeShortName()}</b></color>";
-            }
-
-            Button ageBtn = ageBtnObj.GetComponent<Button>();
-            if (ageBtn != null)
-            {
-                ageBtn.onClick.AddListener(() =>
-                {
-                    if (AoE4HUDThemer.TryAdvanceAge())
-                    {
-                        ShowBuildingUI(building);
-                    }
-                });
-            }
-
-            string ageTip = AoE4HUDThemer.GetAdvanceAgeTooltip();
-            AttachHoverTooltip(ageBtnObj, ageTip);
-        }
     }
 
     private void ClearButtons()
@@ -269,13 +240,13 @@ public class GameUI : MonoBehaviour
 
         string richDesc = unit != null ? unit.UnitDescription : "";
         if (unitName.Contains("Infantry"))
-            richDesc = "Heavy Melee Infantry — Strong vs Spearmen & Buildings";
+            richDesc = "Heavy Melee Infantry - Strong vs Spearmen & Buildings";
         else if (unitName.Contains("Cavalry"))
-            richDesc = "Royal Lancer Cavalry — Fast flanking shock unit";
+            richDesc = "Royal Lancer Cavalry - Fast flanking shock unit";
         else if (unitName.Contains("Villager"))
-            richDesc = "Worker & Builder — Gathers Food, Wood, Gold & constructs fortifications";
+            richDesc = "Worker & Builder - Gathers Food, Wood, Gold & constructs fortifications";
         else if (unitName.Contains("Builder"))
-            richDesc = "Master Builder & Engineer — Specialized in rapid construction";
+            richDesc = "Master Builder & Engineer - Specialized in rapid construction";
 
         if (!string.IsNullOrEmpty(richDesc))
             lines += $"\n<color=#B0C4DE>{richDesc}</color>";
